@@ -88,9 +88,12 @@ _DETAIL_OVERRIDES = {
     "path_precision": "processing_path_precision",
 }
 
-# VTracer argument name -> the model field that overrides the preset.
-# These are field names, not dotted aliases: pydantic records what was
-# supplied in `model_fields_set` under the field name.
+# VTracer argument name -> the model field that overrides the preset. These
+# are field names, not dotted aliases. A field counts as supplied only when it
+# holds something other than its default -- see VectorizeParams.asked_for --
+# because clients routinely post every field they know about filled in with
+# the defaults, and reading that as an override would replace a preset with a
+# value the caller never chose.
 _PRESET_OVERRIDES = {
     "corner_threshold": "processing_corner_threshold",
     "splice_threshold": "processing_splice_threshold",
@@ -107,12 +110,17 @@ class TraceResult:
     width: int
     height: int
     engine: str = ENGINE_NAME
+    prepared: "PreparedImage | None" = None
+
+    @property
+    def shape_count(self) -> int:
+        return self.svg.count("<path")
 
 
-def _tracer_kwargs(params: VectorizeParams, colours_are_pinned: bool) -> dict[str, object]:
+def _tracer_kwargs(
+    params: VectorizeParams, colours_are_pinned: bool, supersample: int = 1
+) -> dict[str, object]:
     """Translate request parameters into VTracer's argument names."""
-    explicit = params.model_fields_set
-
     # Start from the smoothing preset, then let any explicitly-supplied knob
     # take precedence over it.
     tuned = dict(SMOOTHING_PRESETS[params.processing_smoothing])
@@ -123,7 +131,7 @@ def _tracer_kwargs(params: VectorizeParams, colours_are_pinned: bool) -> dict[st
         "length_threshold": params.processing_length_threshold,
     }
     for tracer_key, field_name in _PRESET_OVERRIDES.items():
-        if field_name in explicit:
+        if params.asked_for(field_name):
             tuned[tracer_key] = supplied[tracer_key]
 
     # Same treatment for the detail preset.
@@ -133,7 +141,7 @@ def _tracer_kwargs(params: VectorizeParams, colours_are_pinned: bool) -> dict[st
         "path_precision": params.processing_path_precision,
     }
     for tracer_key, field_name in _DETAIL_OVERRIDES.items():
-        if field_name in explicit:
+        if params.asked_for(field_name):
             detail[tracer_key] = detail_supplied[tracer_key]
 
     color_precision = params.processing_color_precision
@@ -145,34 +153,86 @@ def _tracer_kwargs(params: VectorizeParams, colours_are_pinned: bool) -> dict[st
     # neighbouring entries, so keep full precision unless the caller overrode
     # it themselves.
     if colours_are_pinned:
-        if "processing_color_precision" not in explicit:
+        if not params.asked_for("processing_color_precision"):
             color_precision = 8
-        if "processing_layer_difference" not in explicit:
+        if not params.asked_for("processing_layer_difference"):
             layer_difference = 0
+
+    # Coordinates come back in the supersampled space, so a decimal place of
+    # precision buys nothing that the extra pixels have not already bought,
+    # and the path data would be that much larger for it.
+    path_precision = int(detail["path_precision"])
+    if supersample > 1 and not params.asked_for("processing_path_precision"):
+        path_precision = max(1, path_precision - 1)
+
+    # Two of these knobs are measured in pixels, and the pixels change size
+    # when the bitmap is traced at a multiple of its own resolution. Left
+    # alone they quietly weaken: a 4-pixel shortest segment becomes 2 source
+    # pixels, so the fitter starts following the staircase it was meant to cut
+    # across, and the speckle filter loses three quarters of its reach. Both
+    # are restored to what they mean at 1x -- a length scales with the factor,
+    # an area with its square.
+    length_threshold = float(tuned["length_threshold"]) * supersample
+    filter_speckle = int(detail["filter_speckle"]) * supersample**2
 
     return {
         "colormode": params.processing_color_mode,
         "hierarchical": params.processing_hierarchical,
         "mode": _CURVE_MODE[params.processing_curve_mode],
-        "filter_speckle": int(detail["filter_speckle"]),
+        "filter_speckle": filter_speckle,
         "color_precision": color_precision,
         "layer_difference": layer_difference,
         "corner_threshold": int(tuned["corner_threshold"]),
-        "length_threshold": float(tuned["length_threshold"]),
+        "length_threshold": length_threshold,
         "max_iterations": int(tuned["max_iterations"]),
         "splice_threshold": int(tuned["splice_threshold"]),
-        "path_precision": int(detail["path_precision"]),
+        "path_precision": path_precision,
     }
 
 
 def trace(prepared: PreparedImage, params: VectorizeParams) -> TraceResult:
-    """Convert a prepared bitmap into SVG source.
+    """Convert a prepared bitmap into SVG source, at the resolution that suits it.
 
-    This is CPU-bound and releases the GIL inside the Rust extension, so it
-    is safe (and worthwhile) to call from a worker thread.
+    Preprocessing may offer a second copy of the bitmap at twice the
+    resolution. That extra resolution is worth having when the artwork has
+    features near the pixel grid -- a one-pixel outline cannot be quantized
+    evenly, so its width wanders and the curve fitter follows every wobble --
+    but resampling sharpens noise just as readily, and on a heavily compressed
+    image it multiplies the mess instead.
+
+    Which way a given image goes is not predictable from the image, so it is
+    measured: trace both and keep whichever came out simpler. On the reference
+    artwork the finer pass went from 194 shapes to 89 and is kept; on a
+    heavily compressed test image it went from 55 to 154 and is discarded.
+
+    This is CPU-bound and releases the GIL inside the Rust extension, so it is
+    safe (and worthwhile) to call from a worker thread.
     """
+    result = _trace_one(prepared, params)
+    if prepared.finer is not None:
+        finer = _trace_one(prepared.finer, params)
+        if finer.shape_count <= result.shape_count:
+            logger.debug(
+                "kept the 2x trace (%s shapes vs %s)",
+                finer.shape_count,
+                result.shape_count,
+            )
+            return finer
+        logger.debug(
+            "discarded the 2x trace (%s shapes vs %s)",
+            finer.shape_count,
+            result.shape_count,
+        )
+    return result
+
+
+def _trace_one(prepared: PreparedImage, params: VectorizeParams) -> TraceResult:
     png = to_png_bytes(prepared.image)
-    kwargs = _tracer_kwargs(params, colours_are_pinned=prepared.palette is not None)
+    kwargs = _tracer_kwargs(
+        params,
+        colours_are_pinned=prepared.palette is not None,
+        supersample=prepared.supersample,
+    )
     logger.debug("tracing %sx%s with %s", prepared.traced_width, prepared.traced_height, kwargs)
 
     try:
@@ -188,4 +248,5 @@ def trace(prepared: PreparedImage, params: VectorizeParams) -> TraceResult:
         svg=svg,
         width=prepared.traced_width,
         height=prepared.traced_height,
+        prepared=prepared,
     )

@@ -10,7 +10,7 @@ from __future__ import annotations
 import io
 from dataclasses import dataclass
 
-from PIL import Image, ImageFilter, ImageOps, UnidentifiedImageError
+from PIL import Image, ImageChops, ImageFilter, ImageOps, UnidentifiedImageError
 
 from app.core.errors import BadImageData, ImageTooLarge
 from app.core.logging import get_logger
@@ -41,6 +41,8 @@ class PreparedImage:
     color_count: int | None
     palette: list[str] | None
     has_transparency: bool
+    supersample: int = 1
+    finer: "PreparedImage | None" = None
 
 
 def decode(data: bytes) -> tuple[Image.Image, str]:
@@ -149,165 +151,252 @@ def _flat_palette(entries: list[tuple[int, int, int]]) -> list[int]:
 _RAMP_SAMPLES = 9
 
 
-# Two candidate colours closer than this are treated as the same ink when a
-# palette is being derived. It has to clear the anti-aliasing shades sitting
-# beside each ink without merging inks that are genuinely close: the test
-# artwork pairs a #ffffff outline with a #fbf7da fill only 38 apart, and at 40
-# the outline was swallowed and came back cream. 30 keeps them separate.
+# Two candidate colours closer than this are treated as the same ink. It has
+# to clear the anti-aliasing shades sitting beside each ink without merging
+# inks that are genuinely close: the test artwork pairs a #ffffff outline with
+# a #fbf7da fill only 38 apart, and at 40 the outline was swallowed and came
+# back cream. 30 keeps them separate.
 _MIN_INK_SEPARATION = 30.0
 
+# How close to the line between two accepted inks a colour has to sit before
+# it is read as a blend of them rather than an ink of its own.
+_BLEND_TOLERANCE = 12.0
 
-def _derive_palette(rgb: Image.Image, count: int) -> list[tuple[int, int, int]]:
-    """Work out the real ink colours of flat artwork, to quantize onto.
+# Candidates holding less of the image than this are compression debris.
+_INK_MIN_SHARE = 0.0005
 
-    Quantizing straight to N is unreliable here, because the buckets are
-    chosen by pixel count and a dominant background swallows the budget. On
-    the test artwork ``max_colors=6`` returned five muddy greys and lost the
-    white outline and the pink flower entirely; at 8 it spent half the budget
-    on transition tones like ``#d4cbc0`` that exist only along an edge.
+# ...and holding less than this *after a mode filter* they are a thread rather
+# than a region. Measured on the test artwork: the six real inks came in
+# between 80.7% and 0.27% solid, every transition tone below 0.03%.
+_INK_SOLID_FLOOR = 0.001
 
-    So take a generous palette first and then keep the most-used entries that
-    are far enough apart to be separate inks. What comes back is the artwork's
-    own colours, which the blend ramps can then map pixels onto cleanly.
-    """
-    generous = rgb.quantize(
-        colors=256, method=Image.Quantize.MEDIANCUT, dither=Image.Dither.NONE
-    )
-    table = generous.getpalette() or []
-    ranked = sorted(generous.getcolors(1 << 20) or [], key=lambda item: -item[0])
-
-    chosen: list[tuple[int, int, int]] = []
-    for _, index in ranked:
-        entry = tuple(table[index * 3 : index * 3 + 3])
-        if len(entry) < 3:
-            continue
-        if any(
-            sum((a - b) ** 2 for a, b in zip(entry, prev)) ** 0.5
-            < _MIN_INK_SEPARATION
-            for prev in chosen
-        ):
-            continue
-        chosen.append(entry)  # type: ignore[arg-type]
-        if len(chosen) >= count:
-            break
-    return chosen
-
-
-# Detection only has to identify colours, not resolve detail, so it runs on a
-# reduced copy. Nearest-neighbour, because any smooth resampling would invent
-# blends -- the exact thing being measured. 768 keeps a 1600px source's 5px
-# outline about 2px wide, well clear of the floor below, for a quarter of the
-# cost of working full size.
+# Candidates are gathered from a reduced copy: this stage identifies colours,
+# it does not resolve detail. Nearest-neighbour, because any smooth resampling
+# would invent blends -- the exact thing being measured.
 _DETECT_MAX_EDGE = 768
 
-# An ink has to hold this share of the image *after* the mode filter below.
-# Measured on the test artwork: the six real inks came in between 80.7% and
-# 0.27%, while every transition tone fell to 0.03% or less.
-_INK_SOLID_FLOOR = 0.002
-
-# Above this many inks the artwork is continuous-tone, not flat, and is left
-# alone. A gradient or a photograph runs to 90 or more.
+# Above this many inks the artwork is not flat, and is left alone.
 _FLAT_MAX_INKS = 16
 
-# ...and the inks kept have to account for essentially the whole image, or
-# what was thrown away was real content rather than edge tones.
-_FLAT_MIN_COVERAGE = 0.98
-
-# How far the average pixel may sit from the ink it would be assigned. This is
-# what tells a handful of inks apart from a handful of *bands cut through a
-# gradient*, which no amount of counting can: both come back as a short list.
-# On flat artwork almost every pixel lands on its ink and only the edge tones
-# are far away, so the mean stays near zero -- measured at 0.00 for a PNG logo
-# and 0.81 for a lettering JPEG. Shading spreads pixels evenly between the
-# bands instead: 8.54 for a shaded sticker, 10.41 for a shaded sphere.
-_FLAT_MAX_RESIDUAL = 3.0
+# How far the average pixel may sit from the nearest ink. This is what tells a
+# handful of inks apart from a handful of *bands cut through a gradient*,
+# which counting cannot: both come back as a short list. On flat artwork
+# almost every pixel lands on an ink -- measured at 0.00 for a PNG logo, 1.59
+# for a lettering JPEG, 2.93 for hard-edged shapes with heavy JPEG ringing.
+# Shading spreads pixels between the bands instead: 9.58 for a shaded sticker,
+# 26.50 for a shaded sphere.
+_FLAT_MAX_RESIDUAL = 5.0
 
 
-def _detect_flat_palette(rgb: Image.Image) -> list[tuple[int, int, int]] | None:
-    """Return the artwork's inks, or None if it is not flat artwork.
+def _reduced(rgb: Image.Image) -> Image.Image:
+    if max(rgb.size) <= _DETECT_MAX_EDGE:
+        return rgb
+    scale = _DETECT_MAX_EDGE / max(rgb.size)
+    return rgb.resize(
+        (max(1, int(rgb.width * scale)), max(1, int(rgb.height * scale))),
+        Image.Resampling.NEAREST,
+    )
 
-    Ranking candidate colours by pixel count cannot tell a real ink from the
-    transition tone beside it: on the test artwork the band along the letter
-    edges covered more of the image (0.50%) than the sage green of the flower
-    leaves (0.27%), so any population threshold keeps the wrong one.
 
-    What separates them is shape, not size. A transition tone is a thread one
-    or two pixels wide and is always a minority in its own neighbourhood; an
-    ink fills regions. So fold the near-duplicate shades together, run a mode
-    filter over the result, and weigh each ink by what survives. The threads
-    collapse to almost nothing, the inks keep their area, and the gap between
-    them is an order of magnitude rather than a judgement call.
-
-    Artwork that does not resolve to a handful of such inks is continuous-tone
-    -- a photograph, a gradient -- and gets no palette at all, because
-    flattening it to a dozen colours would be vandalism rather than cleanup.
-    """
-    work = rgb
-    if max(work.size) > _DETECT_MAX_EDGE:
-        scale = _DETECT_MAX_EDGE / max(work.size)
-        work = work.resize(
-            (max(1, int(work.width * scale)), max(1, int(work.height * scale))),
-            Image.Resampling.NEAREST,
-        )
-
-    generous = work.quantize(
+def _generous(rgb: Image.Image) -> tuple[Image.Image, list[int]]:
+    quantized = _reduced(rgb).quantize(
         colors=256, method=Image.Quantize.MEDIANCUT, dither=Image.Dither.NONE
     )
-    table = generous.getpalette() or []
+    return quantized, list(quantized.getpalette() or [])
 
-    # Fold every bucket onto the nearest ink already seen, most-used first, so
-    # an ink absorbs the anti-aliasing shades that belong to it.
-    inks: list[tuple[int, int, int]] = []
+
+def _ink_candidates(
+    rgb: Image.Image,
+) -> tuple[list[tuple[int, int, int]], list[int], int, Image.Image]:
+    """Distinct colours in the artwork, most-used first, with their weights.
+
+    Quantizing generously and then folding near-duplicates together is what
+    turns thousands of compression shades back into a short list. Each
+    candidate absorbs the shades that belong to it, so its weight is the share
+    of the image it really accounts for.
+    """
+    generous, table = _generous(rgb)
+
+    colours: list[tuple[int, int, int]] = []
+    weights: list[int] = []
     assign: dict[int, int] = {}
-    for _, index in sorted(generous.getcolors(1 << 20) or [], key=lambda i: -i[0]):
+    total = 0
+    for count, index in sorted(
+        generous.getcolors(1 << 20) or [], key=lambda item: -item[0]
+    ):
         entry = tuple(table[index * 3 : index * 3 + 3])
         if len(entry) < 3:
             continue
-        nearest, best = None, _MIN_INK_SEPARATION
-        for position, ink in enumerate(inks):
-            distance = sum((a - b) ** 2 for a, b in zip(entry, ink)) ** 0.5
-            if distance < best:
-                nearest, best = position, distance
-        if nearest is None:
-            assign[index] = len(inks)
-            inks.append(entry)  # type: ignore[arg-type]
-        else:
-            assign[index] = nearest
-    if not inks:
-        return None
+        total += count
+        merged = False
+        for position, colour in enumerate(colours):
+            distance = sum((a - b) ** 2 for a, b in zip(entry, colour)) ** 0.5
+            if distance < _MIN_INK_SEPARATION:
+                weights[position] += count
+                assign[index] = position
+                merged = True
+                break
+        if not merged:
+            assign[index] = len(colours)
+            colours.append(entry)  # type: ignore[arg-type]
+            weights.append(count)
 
+    order = sorted(range(len(colours)), key=lambda k: -weights[k])
+    rank = {old: new for new, old in enumerate(order)}
     ids = Image.frombytes(
         "P",
         generous.size,
-        generous.tobytes().translate(bytes(assign.get(i, 0) for i in range(256))),
+        generous.tobytes().translate(bytes(rank.get(assign.get(i, 0), 0) for i in range(256))),
     )
-    solid = [0] * len(inks)
-    for count, index in ids.filter(ImageFilter.ModeFilter(5)).getcolors(1 << 20) or []:
-        if index < len(inks):
-            solid[index] = count
+    return [colours[k] for k in order], [weights[k] for k in order], total, ids
 
+
+def _explained_as_blend(
+    colour: tuple[int, int, int], inks: list[tuple[int, int, int]]
+) -> bool:
+    """True if *colour* is just a mixture of two inks already accepted.
+
+    This is what separates a real ink from the transition tone beside it, and
+    it is the only test that gets both halves right. Weighing candidates by
+    area does not: on the test artwork the band along the letter edges covered
+    more of the image (0.50%) than the sage green of the flower leaves
+    (0.27%). Weighing them by how solid a region they form does not either --
+    that reads a hairline as debris, and a synthetic outline one pixel wide
+    was dropped outright, taking the colour out of the palette altogether.
+
+    A transition tone, though, is by definition a mixture: the pixels between
+    a charcoal stroke and a cream fill lie on the line between the two. A
+    hairline drawn in charcoal lies between nothing, however thin it is.
+    """
+    for i in range(len(inks)):
+        for j in range(i + 1, len(inks)):
+            a, b = inks[i], inks[j]
+            delta = tuple(bc - ac for ac, bc in zip(a, b))
+            length = sum(d * d for d in delta)
+            if length == 0:
+                continue
+            weight = sum((c - ac) * d for c, ac, d in zip(colour, a, delta)) / length
+            weight = max(0.0, min(1.0, weight))
+            mixed = tuple(ac + weight * d for ac, d in zip(a, delta))
+            error = sum((c - m) ** 2 for c, m in zip(colour, mixed)) ** 0.5
+            if error <= _BLEND_TOLERANCE:
+                return True
+    return False
+
+
+def _solid_shares(ids: Image.Image, count: int) -> list[float]:
+    """Share of the image each candidate holds once thin runs are removed.
+
+    A mode filter keeps whatever fills a region and discards whatever is only
+    a thread, so what survives measures shape rather than area.
+    """
+    filtered = ids.filter(ImageFilter.ModeFilter(5))
+    shares = [0.0] * count
     total = ids.size[0] * ids.size[1]
-    ranked = sorted(range(len(inks)), key=lambda k: -solid[k])
-    kept = [k for k in ranked if solid[k] / total >= _INK_SOLID_FLOOR]
-    coverage = sum(solid[k] for k in kept) / total
+    for pixels, index in filtered.getcolors(1 << 20) or []:
+        if index < count and total:
+            shares[index] = pixels / total
+    return shares
 
-    if not kept or len(kept) > _FLAT_MAX_INKS or coverage < _FLAT_MIN_COVERAGE:
-        return None
 
-    # Weigh how far the artwork actually sits from the inks it would be
-    # mapped onto. Cheap, because the buckets already stand in for the pixels.
+def _accept_inks(rgb: Image.Image, limit: int) -> list[tuple[int, int, int]]:
+    """Walk the candidates strongest-first, keeping the ones that are inks.
+
+    Two conditions have to hold together before a colour is dismissed as a
+    transition tone, and either on its own gets a case badly wrong.
+
+    It must be *explained as a blend* of two inks already accepted. Area alone
+    cannot decide this: on the test artwork the band along the letter edges
+    covered more of the image (0.50%) than the sage green of the flower leaves
+    (0.27%), so any threshold on size keeps the wrong one and drops the right
+    one.
+
+    And it must be *thin*, holding almost nothing once a mode filter has
+    removed everything that is merely a thread. Blend alone cannot decide it
+    either, because a neutral grey sits exactly on the line between black and
+    white: on that same artwork it dismissed the grey background -- eighty
+    percent of the image -- and took the whole palette down with it.
+
+    Together they are right in all four directions. A grey background is a
+    blend but not thin. A charcoal hairline is thin but not a blend. An edge
+    band is both. A flower leaf is neither.
+    """
+    colours, weights, total, ids = _ink_candidates(rgb)
+    solid = _solid_shares(ids, len(colours))
+
+    inks: list[tuple[int, int, int]] = []
+    for position, colour in enumerate(colours):
+        if total and weights[position] / total < _INK_MIN_SHARE:
+            continue
+        if solid[position] < _INK_SOLID_FLOOR and _explained_as_blend(colour, inks):
+            continue
+        inks.append(colour)
+        if len(inks) >= limit:
+            break
+
+    # The walk can only test a candidate against the inks accepted before it,
+    # so a transition tone that outweighs one of the two colours it sits
+    # between slips through -- on a lettering test image that left two
+    # near-identical charcoals, which is a ghost layer by another name. One
+    # more pass over the settled set catches those.
+    keep = [
+        colour
+        for index, colour in enumerate(inks)
+        if not (
+            solid[colours.index(colour)] < _INK_SOLID_FLOOR
+            and _explained_as_blend(colour, inks[:index] + inks[index + 1 :])
+        )
+    ]
+    return keep or inks
+
+
+def _derive_palette(rgb: Image.Image, count: int) -> list[tuple[int, int, int]]:
+    """Work out the *count* real ink colours of the artwork.
+
+    Quantizing straight to N is unreliable, because the buckets are chosen by
+    pixel count and a dominant background swallows the budget. On the test
+    artwork ``max_colors=6`` returned five muddy greys and lost the white
+    outline and the pink flower entirely; at 8 it spent half the budget on
+    transition tones like ``#d4cbc0`` that exist only along an edge.
+    """
+    return _accept_inks(rgb, count)
+
+
+def _mean_residual(rgb: Image.Image, inks: list[tuple[int, int, int]]) -> float:
+    """How far the average pixel sits from the nearest ink.
+
+    Cheap, because the candidate buckets already stand in for the pixels.
+    """
+    generous, table = _generous(rgb)
     error = weight = 0.0
     for count, index in generous.getcolors(1 << 20) or []:
         entry = tuple(table[index * 3 : index * 3 + 3])
         if len(entry) < 3:
             continue
-        ink = inks[assign.get(index, 0)]
-        error += count * sum((a - b) ** 2 for a, b in zip(entry, ink)) ** 0.5
+        error += count * min(
+            sum((a - b) ** 2 for a, b in zip(entry, ink)) ** 0.5 for ink in inks
+        )
         weight += count
-    if weight and error / weight > _FLAT_MAX_RESIDUAL:
-        return None
+    return error / weight if weight else 0.0
 
-    return [inks[k] for k in kept]
+
+def _detect_flat_palette(rgb: Image.Image) -> list[tuple[int, int, int]] | None:
+    """Return the artwork's inks, or None if it is not flat artwork.
+
+    Flat artwork traced as-is picks up a shape for every anti-aliasing band,
+    which is what makes outlines read grey and edges look faceted. Finding its
+    inks removes those at the source.
+
+    Anything continuous-tone -- a photograph, a gradient, a shaded
+    illustration -- gets no palette at all, because flattening it to a dozen
+    colours would be vandalism rather than cleanup.
+    """
+    inks = _accept_inks(rgb, _FLAT_MAX_INKS + 1)
+    if not inks or len(inks) > _FLAT_MAX_INKS:
+        return None
+    if _mean_residual(rgb, inks) > _FLAT_MAX_RESIDUAL:
+        return None
+    return inks
 
 
 def _blend_ramp(rgbs: list[tuple[int, int, int]]) -> tuple[Image.Image, bytes]:
@@ -365,13 +454,109 @@ def _blend_ramp(rgbs: list[tuple[int, int, int]]) -> tuple[Image.Image, bytes]:
     return probe_img, bytes(table[:256])
 
 
-def _quantize(
+# Ranks that decide what counts as a speckle. Comparing the Nth smallest and
+# Nth largest of a 3x3 window asks "do at least 9-2N of these nine agree?",
+# so (2, 6) means seven of nine. See _drop_speckles for why seven.
+_SPECKLE_RANKS = (2, 6)
+
+
+def _drop_speckles(ids: Image.Image) -> Image.Image:
+    """Clear specks of a pixel or two without eroding anything a pixel wide.
+
+    The blend ramps settle which two colours an edge pixel lies between; what
+    is left is stray compression speckles. A mode filter is the obvious tool
+    and the wrong one: a hairline is a minority in its own 3x3 window, so the
+    filter eats it. On the test artwork it removed 6,154 pixels of a charcoal
+    outline drawn one to two pixels wide, and that is what left the outline
+    thick in places, thin in others and broken into dashes.
+
+    The distinction that matters is not how many pixels disagree but whether
+    they form a line. A pixel on a one-pixel line has two more of its own kind
+    in its window, so six of the nine agree on the other colour; a speck of
+    one or two pixels leaves seven or more agreeing. Requiring seven keeps
+    every line and still clears both sizes of speck.
+
+    RankFilter does the counting without a pass over the pixels in Python:
+    when seven of the nine share a value, the third-smallest and third-largest
+    are both that value whatever the other two are, and any more variety makes
+    them differ.
+    """
+    flat = Image.frombytes("L", ids.size, ids.tobytes())
+    low = flat.filter(ImageFilter.RankFilter(3, _SPECKLE_RANKS[0]))
+    high = flat.filter(ImageFilter.RankFilter(3, _SPECKLE_RANKS[1]))
+    uniform = ImageChops.difference(low, high).point(lambda v: 255 if v == 0 else 0)
+    differs = ImageChops.difference(flat, low).point(lambda v: 255 if v else 0)
+    cleaned = Image.composite(low, flat, ImageChops.multiply(uniform, differs))
+    return Image.frombytes("P", ids.size, cleaned.tobytes())
+
+
+def _smooth_broad_boundaries(ids: Image.Image) -> Image.Image:
+    """Even out the edges of broad regions, leaving thin ones exactly as they are.
+
+    Hard-quantizing a soft edge leaves it ragged: the ramp crosses the
+    boundary, compression noise makes it cross back, and the result is a
+    fringe of single pixels that the curve fitter then traces. A mode filter
+    settles that fringe -- but it also eats anything narrower than its window,
+    which is how a hairline outline gets chewed into dashes.
+
+    Both are wanted, so the filter is applied only where it cannot do harm. A
+    pixel sits in a structure at least three pixels wide exactly when some 3x3
+    window containing it holds a single ink, and that window's ink must be its
+    own. So mark the windows that are uniform, spread that mark by one pixel,
+    and smooth only what it covers; everything left over is a thread and keeps
+    the value it had.
+
+    Three filter passes settle it whatever the ink count -- the obvious form,
+    an opening per ink, gives pixel-for-pixel the same answer for twice the
+    work.
+
+    This is only worth doing on a bitmap traced at a multiple of its own
+    resolution, where a 3x3 window spans a pixel and a half of the original
+    and the fringe it removes is genuinely sub-pixel.
+    """
+    flat = Image.frombytes("L", ids.size, ids.tobytes())
+    uniform = ImageChops.difference(
+        flat.filter(ImageFilter.MinFilter(3)), flat.filter(ImageFilter.MaxFilter(3))
+    ).point(lambda v: 255 if v == 0 else 0)
+    broad = uniform.filter(ImageFilter.MaxFilter(3))
+    smoothed = Image.frombytes(
+        "L", ids.size, ids.filter(ImageFilter.ModeFilter(3)).tobytes()
+    )
+    return Image.frombytes(
+        "P", ids.size, Image.composite(smoothed, flat, broad).tobytes()
+    )
+
+
+def _resolve_palette(
     image: Image.Image,
     max_colors: int,
     palette: list[str] | None,
-    auto: bool = False,
-) -> tuple[Image.Image, list[str] | None]:
-    """Reduce the colour count, preserving any alpha channel.
+    auto: bool,
+) -> list[tuple[int, int, int]] | None:
+    """Settle which colours the pixels will be mapped onto, or None for neither.
+
+    A pinned palette is the caller's. A colour budget means derive that many
+    inks. With neither, look at the artwork: flat work gets its own inks found
+    for it, and anything continuous-tone is left exactly as it is. The pixels
+    are then assigned the same way in every case, so the automatic result
+    matches what naming the colours would have given.
+    """
+    if palette:
+        return _palette_rgbs(palette) or None
+    rgb = image.convert("RGB")
+    if max_colors > 0:
+        return _derive_palette(rgb, max(2, min(256, max_colors))) or None
+    if auto:
+        return _detect_flat_palette(rgb)
+    return None
+
+
+def _quantize(
+    image: Image.Image,
+    rgbs: list[tuple[int, int, int]],
+    smooth_boundaries: bool = False,
+) -> tuple[Image.Image, list[str]]:
+    """Map every pixel onto *rgbs*, preserving any alpha channel.
 
     Returns the conditioned image and the palette it was mapped onto, so the
     caller can pass that on and have the traced fills snapped to the same
@@ -384,26 +569,6 @@ def _quantize(
     alpha = image.getchannel("A") if image.mode == "RGBA" else None
     rgb = image.convert("RGB")
 
-    # A pinned palette is the caller's. A colour budget means derive that many
-    # inks. With neither, look at the artwork: flat work gets its own inks
-    # found for it, and anything continuous-tone is left exactly as it is.
-    # Either way the pixels are then assigned the same way, so the automatic
-    # result matches what naming the colours would have given.
-    if palette:
-        rgbs = _palette_rgbs(palette)
-    elif max_colors > 0:
-        rgbs = _derive_palette(rgb, max(2, min(256, max_colors)))
-    elif auto:
-        detected = _detect_flat_palette(rgb)
-        if detected is None:
-            return image, None
-        rgbs = detected
-    else:
-        return image, None
-
-    if not rgbs:
-        return image, None
-
     probe, resolves_to = _blend_ramp(rgbs)
     quantized = rgb.quantize(palette=probe, dither=Image.Dither.NONE)
     # Collapse the ramp samples onto the palette entry each resolves to, so
@@ -412,19 +577,35 @@ def _quantize(
     quantized = Image.frombytes(
         "P", quantized.size, quantized.tobytes().translate(resolves_to)
     )
+    quantized = _drop_speckles(quantized)
+    if smooth_boundaries:
+        quantized = _smooth_broad_boundaries(quantized)
     quantized.putpalette(_flat_palette(rgbs))
-    # The ramp settles which two colours an edge pixel lies between; what is
-    # left is single-pixel disagreement about exactly where the boundary
-    # falls, plus stray compression speckles. A mode filter over the palette
-    # indices replaces each pixel with the commonest colour around it, which
-    # tidies both while leaving solid regions untouched.
-    quantized = quantized.filter(ImageFilter.ModeFilter(3))
 
     result = quantized.convert("RGB")
     if alpha is not None:
         result = result.convert("RGBA")
         result.putalpha(alpha)
     return result, ["#%02x%02x%02x" % entry for entry in rgbs]
+
+
+# Tracing at twice the resolution, then presenting the result at the original
+# size. A one-pixel line cannot be quantized evenly: whether a given pixel
+# lands on the dark side of the boundary depends on where the line falls
+# within that pixel, so its width wanders between one and four pixels and the
+# curve fitter follows every wobble. On the reference artwork that is exactly
+# what left the charcoal outline uneven -- measured 1-4 pixels where the
+# source varies 1-2. At twice the resolution the wander is half as large
+# relative to the line and the outline comes out even: 194 traced shapes
+# became 89.
+#
+# But resampling sharpens noise as readily as geometry. On a heavily
+# compressed test image, where the tracer was already splitting one dark ring
+# into two shades, the same treatment took 55 traced shapes to 154. Which way
+# it goes cannot be predicted from the image, so it is measured instead: both
+# are traced and the one that came out simpler is kept. See engine.trace.
+_SUPERSAMPLE = 2
+_SUPERSAMPLE_MAX_PIXELS = 12_000_000
 
 
 def prepare(
@@ -452,16 +633,54 @@ def prepare(
         budget = min(budget, params.input_max_pixels)
     image, downscaled = _fit_within(image, budget)
 
-    # Denoise before quantizing: quantization would otherwise lock the noise
-    # into the palette it picks.
-    image = _denoise(image, params.processing_denoise)
-
-    image, palette = _quantize(
+    # Settle the colours before denoising, because that decides whether
+    # denoising should happen at all. A median filter is the right tool when
+    # the tracer will see raw pixels, and the wrong one when every pixel is
+    # about to be mapped onto a known ink: it is redundant there, and it eats
+    # anything a pixel or two wide, because a hairline is a minority in its
+    # own window. On the test artwork the default median left the charcoal
+    # outline around the lettering thick in places, thin in others and broken
+    # into dashes -- while the same file with no median traced it as one even
+    # line. So denoise only when the colours are staying as they are, or when
+    # the caller asked for a level themselves.
+    palette_rgbs = _resolve_palette(
         image,
         params.processing_max_colors,
         params.processing_palette,
-        auto=params.auto_palette,
+        params.auto_palette,
     )
+    if palette_rgbs is None or params.asked_for("processing_denoise"):
+        image = _denoise(image, params.processing_denoise)
+
+    finer = None
+    if palette_rgbs is None:
+        palette = None
+    else:
+        original = image
+        image, palette = _quantize(image, palette_rgbs)
+        pixels = original.width * original.height
+        if pixels * _SUPERSAMPLE**2 <= _SUPERSAMPLE_MAX_PIXELS:
+            enlarged, _ = _quantize(
+                original.resize(
+                    (original.width * _SUPERSAMPLE, original.height * _SUPERSAMPLE),
+                    Image.Resampling.LANCZOS,
+                ),
+                palette_rgbs,
+                smooth_boundaries=True,
+            )
+            finer = PreparedImage(
+                image=enlarged,
+                source_format=source_format,
+                source_width=source_width,
+                source_height=source_height,
+                traced_width=enlarged.size[0],
+                traced_height=enlarged.size[1],
+                downscaled=downscaled,
+                color_count=len(palette),
+                palette=palette,
+                has_transparency=_has_transparency(enlarged),
+                supersample=_SUPERSAMPLE,
+            )
 
     return PreparedImage(
         image=image,
@@ -474,6 +693,7 @@ def prepare(
         color_count=len(palette) if palette else None,
         palette=palette,
         has_transparency=_has_transparency(image),
+        finer=finer,
     )
 
 

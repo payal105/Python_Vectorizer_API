@@ -469,16 +469,21 @@ def _set_geometry(
     source_w: int,
     source_h: int,
     for_print: bool,
+    supersample: int = 1,
 ) -> tuple[float, float]:
     """Give the document a viewBox and a real-world size.
 
     The viewBox always stays in tracer pixel space, so scaling is purely a
-    presentation concern and never touches the path data.
+    presentation concern and never touches the path data. When the bitmap was
+    traced at a multiple of its own resolution, that multiple divides out here
+    -- the extra pixels bought accuracy, not size.
     """
     root.set("viewBox", f"0 0 {source_w} {source_h}")
     root.set("preserveAspectRatio", "xMidYMid meet")
 
-    target_w, target_h = params.target_size_px(source_w, source_h)
+    target_w, target_h = params.target_size_px(
+        source_w / supersample, source_h / supersample
+    )
 
     if for_print:
         # PDF/EPS consumers think in points; emitting points keeps the
@@ -505,6 +510,7 @@ def build(
     *,
     for_print: bool = False,
     palette: list[str] | None = None,
+    supersample: int = 1,
 ) -> tuple[bytes, dict[str, float | int]]:
     """Post-process raw tracer SVG into the final document.
 
@@ -546,7 +552,9 @@ def build(
         combined = params.output_combine_paths
     if params.output_group_by == "color":
         _group_by_color(root, paths)
-    target_w, target_h = _set_geometry(root, params, source_w, source_h, for_print)
+    target_w, target_h = _set_geometry(
+        root, params, source_w, source_h, for_print, supersample
+    )
     _add_watermark(root, params, source_w, source_h)
 
     root.set("version", "1.1")

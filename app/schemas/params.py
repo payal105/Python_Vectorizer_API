@@ -398,6 +398,17 @@ class VectorizeParams(BaseModel):
         }
     )
 
+    def asked_for(self, field: str) -> bool:
+        """True when *field* holds something other than its default.
+
+        What counts as a choice is the value, not the mention. Plenty of
+        clients post every field they know about, filled in with the defaults
+        -- Swagger's "Try it out" form does exactly that -- so reading the
+        presence of a field as an instruction quietly changes the output for
+        those callers while looking like it has done nothing at all.
+        """
+        return getattr(self, field) != type(self).model_fields[field].default
+
     @property
     def auto_palette(self) -> bool:
         """Whether preprocessing may derive a palette from the artwork itself.
@@ -407,19 +418,12 @@ class VectorizeParams(BaseModel):
         Deriving the artwork's own inks fixes that without the caller naming
         anything -- but only as a default, never over an explicit choice.
 
-        What counts as a choice is the *value*, not the mention. Plenty of
-        clients post every field they know about, filled in with the defaults
-        -- Swagger's "Try it out" form does exactly that -- and treating
-        ``processing.detail=standard`` as an instruction would have switched
-        this off for them while looking like it had done nothing at all.
+        What counts as a choice is the value, not the mention -- see
+        :meth:`asked_for`.
         """
         if self.processing_palette:
             return False
-        fields = type(self).model_fields
-        return all(
-            getattr(self, name) == fields[name].default
-            for name in self._COLOUR_PIPELINE_FIELDS
-        )
+        return not any(self.asked_for(name) for name in self._COLOUR_PIPELINE_FIELDS)
 
     @model_validator(mode="after")
     def _check_combinations(self) -> VectorizeParams:
@@ -453,7 +457,7 @@ class VectorizeParams(BaseModel):
                 "output.size.width / output.size.height."
             )
 
-        if self.processing_palette and "processing_denoise" not in self.model_fields_set:
+        if self.processing_palette and not self.asked_for("processing_denoise"):
             # Median denoising and a pinned palette fight each other. The
             # filter widens the boundary between two colours into a ramp of
             # intermediate tones, and every tone in that ramp is a pixel the

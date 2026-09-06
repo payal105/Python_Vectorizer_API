@@ -201,9 +201,18 @@ def test_width_in_inches_sets_the_pdf_page_size(client, sample_png):
 
 
 def test_svg_carries_a_viewbox_so_it_scales_cleanly(client, sample_png):
+    """The viewBox stays in tracer pixel space and the width carries the
+    requested size, so scaling never touches the path data. Flat artwork may
+    be traced at a multiple of its own resolution, which shows up in the
+    viewBox and must not change the size the document reports."""
     response = post(client, sample_png, **{"output.size.scale": "3"})
-    assert b'viewBox="0 0 240 180"' in response.content
+    box = re.search(rb'viewBox="0 0 (\d+) (\d+)"', response.content)
+    assert box is not None
+    width, height = int(box.group(1)), int(box.group(2))
+    assert width % 240 == 0 and height % 180 == 0, (width, height)
+    assert width // 240 == height // 180, (width, height)
     assert b'width="720"' in response.content
+    assert b'height="540"' in response.content
 
 
 def test_png_dpi_controls_the_raster_size(client, sample_png):
@@ -932,7 +941,7 @@ def test_edge_blend_resolves_to_one_of_the_two_colours_it_lies_between():
     against blend ramps instead asks which two palette colours explain the
     pixel, so it resolves to charcoal or cream and never to grey.
     """
-    from app.services.preprocess import _quantize
+    from app.services.preprocess import _quantize, _resolve_palette
 
     palette = ["#666666", "#fbf7da", "#2d2c2a"]
     grey, cream, charcoal = (102, 102, 102), (251, 247, 218), (45, 44, 42)
@@ -948,7 +957,8 @@ def test_edge_blend_resolves_to_one_of_the_two_colours_it_lies_between():
     assert nearest(midpoint) == grey
 
     edge = Image.new("RGB", (32, 32), midpoint)
-    quantized, used = _quantize(edge, 0, palette)
+    rgbs = _resolve_palette(edge, 0, palette, auto=False)
+    quantized, used = _quantize(edge, rgbs)
     assert used == palette
     assert quantized.convert("RGB").getpixel((16, 16)) in (charcoal, cream)
 
@@ -982,11 +992,16 @@ def test_thin_white_outline_is_not_overlaid_with_grey(client):
     )
     prepared = prepare(buffer.getvalue(), params, 4_000_000)
     pixels = prepared.image.convert("RGB")
+    # Flat artwork is traced at a multiple of its own resolution, so the
+    # prepared bitmap is not in source coordinates.
+    scale = prepared.supersample
 
-    inside = Image.new("L", (400, 300), 0)
+    inside = Image.new("L", pixels.size, 0)
     stencil = ImageDraw.Draw(inside)
     for cx in (130, 270):
-        stencil.ellipse([cx - 90, 40, cx + 90, 260], fill=255)
+        stencil.ellipse(
+            [(cx - 90) * scale, 40 * scale, (cx + 90) * scale, 260 * scale], fill=255
+        )
 
     grey = sum(
         1
@@ -995,8 +1010,11 @@ def test_thin_white_outline_is_not_overlaid_with_grey(client):
         )
         if covered and colour == (102, 102, 102)
     )
-    # Nearest-colour mapping left 160 grey pixels here; blend ramps leave none.
-    assert grey <= 5, grey
+    # Nearest-colour mapping left 160 grey pixels here. What survives is a
+    # handful of small clumps in the JPEG ringing: clearing those too would
+    # mean a mode filter, and a mode filter eats hairlines -- see
+    # test_a_hairline_outline_survives_at_full_width.
+    assert grey <= 30 * scale * scale, (grey, scale)
 
 
 def test_blend_ramp_stays_within_the_palette_ceiling():
@@ -1214,3 +1232,269 @@ def test_posting_the_defaults_back_is_not_a_choice(override):
     from app.schemas.params import VectorizeParams
 
     assert VectorizeParams.model_validate(override).auto_palette is True
+
+
+def test_a_hairline_outline_survives_at_full_width():
+    """A median or mode filter destroys anything a pixel or two wide, because
+    a hairline is a minority in its own window. On real lettering that left
+    the charcoal outline thick in places, thin in others and broken into
+    dashes. Nothing in preprocessing may thin or break it."""
+    from PIL import ImageDraw
+
+    from app.schemas.params import VectorizeParams
+    from app.services.preprocess import prepare
+
+    # Drawn large and reduced, the way the artwork got its hairline: what
+    # lands in the file is a one-pixel line with anti-aliasing either side,
+    # not a crisp two-pixel one that any filter would survive.
+    scale = 3
+    image = Image.new("RGB", (400 * scale, 300 * scale), "#666666")
+    draw = ImageDraw.Draw(image)
+    draw.ellipse([60 * scale, 40 * scale, 340 * scale, 260 * scale], fill="#fbf7da")
+    draw.ellipse(
+        [60 * scale, 40 * scale, 340 * scale, 260 * scale],
+        outline="#2d2c2a",
+        width=scale,
+    )
+    image = image.resize((400, 300), Image.Resampling.LANCZOS)
+    buffer = io.BytesIO()
+    image.save(buffer, format="JPEG", quality=85)
+
+    prepared = prepare(buffer.getvalue(), VectorizeParams(), 4_000_000)
+    pixels = prepared.image.convert("RGB")
+    scale = prepared.supersample
+    charcoal = (45, 44, 42)
+
+    def runs(y):
+        """Lengths of the charcoal runs crossed by this scanline."""
+        found, run = [], 0
+        for x in range(400 * scale):
+            near = (
+                sum((a - b) ** 2 for a, b in zip(pixels.getpixel((x, y)), charcoal))
+                ** 0.5
+                <= 60
+            )
+            if near:
+                run += 1
+            elif run:
+                found.append(run)
+                run = 0
+        return found
+
+    # Every scanline through the body of the ellipse crosses the outline twice,
+    # and neither crossing may be missing or worn down to nothing.
+    for y in range(80 * scale, 221 * scale, 10 * scale):
+        crossings = runs(y)
+        assert len(crossings) == 2, (y, crossings)
+        assert min(crossings) >= 1, (y, crossings)
+
+
+def test_a_solid_grey_background_is_not_mistaken_for_a_blend():
+    """A neutral grey sits exactly on the line between black and white, so the
+    blend test alone dismisses it. On the reference artwork that threw away a
+    background covering eighty percent of the image and took the rest of the
+    palette with it. Only a colour that is *both* a blend and a thin thread is
+    a transition tone."""
+    from PIL import ImageDraw
+
+    from app.services.preprocess import _detect_flat_palette
+
+    image = Image.new("RGB", (400, 300), "#666666")
+    draw = ImageDraw.Draw(image)
+    draw.ellipse([80, 60, 320, 240], fill="#ffffff")
+    draw.ellipse([110, 90, 290, 210], fill="#111111")
+    inks = _detect_flat_palette(image)
+
+    assert inks is not None
+    assert any(
+        sum((a - b) ** 2 for a, b in zip(ink, (102, 102, 102))) ** 0.5 <= 20
+        for ink in inks
+    ), inks
+
+
+def _outlined_disc(quality: int, supersize: int = 1) -> bytes:
+    """A disc with a fill, a dark ring and a light halo, saved as JPEG.
+
+    Drawing large and reducing puts genuine sub-pixel detail in the file, the
+    way real artwork carries it; drawing at final size and compressing hard
+    instead gives ringing with nothing underneath it.
+    """
+    from PIL import ImageDraw
+
+    s = supersize
+    image = Image.new("RGB", (400 * s, 300 * s), "#666666")
+    draw = ImageDraw.Draw(image)
+    draw.ellipse([50 * s, 30 * s, 350 * s, 270 * s], fill="#ffffff")
+    draw.ellipse([56 * s, 36 * s, 344 * s, 264 * s], fill="#2d2c2a")
+    draw.ellipse([62 * s, 42 * s, 338 * s, 258 * s], fill="#fbf7da")
+    if s > 1:
+        image = image.resize((400, 300), Image.Resampling.LANCZOS)
+    buffer = io.BytesIO()
+    image.save(buffer, format="JPEG", quality=quality)
+    return buffer.getvalue()
+
+
+def test_the_finer_trace_is_kept_only_when_it_comes_out_simpler():
+    """A one-pixel outline cannot be quantized evenly — whether a pixel lands
+    on the dark side depends on where the line falls inside it, so the width
+    wanders and the curve fitter follows every wobble. Tracing at twice the
+    resolution halves that, but resampling sharpens noise just as readily, and
+    on a heavily compressed image it multiplies the mess instead. Which way an
+    image goes is measured, not guessed."""
+    from app.schemas.params import VectorizeParams
+    from app.services import engine, preprocess
+
+    params = VectorizeParams()
+
+    clean = preprocess.prepare(_outlined_disc(92, supersize=3), params, 4_000_000)
+    assert clean.finer is not None
+    assert engine.trace(clean, params).prepared.supersample == 2
+
+    noisy = preprocess.prepare(_outlined_disc(70), params, 4_000_000)
+    assert noisy.finer is not None
+    coarse = engine._trace_one(noisy, params)
+    finer = engine._trace_one(noisy.finer, params)
+    assert finer.shape_count > coarse.shape_count, (coarse.shape_count, finer.shape_count)
+    assert engine.trace(noisy, params).prepared.supersample == 1
+
+
+def test_tracing_finer_does_not_change_the_output_size():
+    """The extra pixels buy accuracy, not size: they show up in the viewBox
+    and divide back out of the width and height."""
+    from app.schemas.params import VectorizeParams
+    from app.services import engine, preprocess, svgdoc
+
+    params = VectorizeParams()
+    prepared = preprocess.prepare(_outlined_disc(92, supersize=3), params, 4_000_000)
+    traced = engine.trace(prepared, params)
+    used = traced.prepared
+    assert used.supersample == 2
+
+    svg, meta = svgdoc.build(
+        traced.svg,
+        params,
+        used.traced_width,
+        used.traced_height,
+        palette=used.palette,
+        supersample=used.supersample,
+    )
+    assert b'viewBox="0 0 800 600"' in svg
+    assert b'width="400"' in svg and b'height="300"' in svg
+    assert (meta["output_width"], meta["output_height"]) == (400.0, 300.0)
+
+
+# Every parameter, spelled with the value the schema advertises as its default.
+ALL_DEFAULTS = {
+    "mode": "production",
+    "processing.color_mode": "color",
+    "processing.max_colors": "0",
+    "processing.hierarchical": "cutout",
+    "processing.curve_mode": "spline",
+    "processing.color_merge": "16",
+    "processing.detail": "standard",
+    "processing.denoise": "low",
+    "processing.smoothing": "low",
+    "processing.shapes.min_area_px": "4",
+    "processing.color_precision": "6",
+    "processing.layer_difference": "16",
+    "processing.corner_threshold": "60",
+    "processing.length_threshold": "4.0",
+    "processing.splice_threshold": "45",
+    "processing.max_iterations": "10",
+    "processing.path_precision": "3",
+    "output.draw_style": "fill_shapes",
+    "output.combine_paths": "shapes",
+    "output.group_by": "none",
+    "output.gap_filler.enabled": "true",
+    "output.size.scale": "1",
+}
+
+
+def test_posting_every_parameter_at_its_default_changes_nothing(client):
+    """Generated clients and Swagger's "Try it out" form post every field they
+    know about, filled in with the values the schema showed them. Reading a
+    field's presence as an instruction made those callers get a different file
+    from callers who sent nothing — quietly, and for no reason they could see.
+
+    Preprocessing, the tracer presets and the colour pipeline all decide on
+    the value now, so the two requests have to come back identical."""
+    plain = post(client, jpeg_bytes(), name="a.jpg")
+    echoed = post(client, jpeg_bytes(), name="a.jpg", **ALL_DEFAULTS)
+
+    assert plain.status_code == 200 and echoed.status_code == 200
+    assert echoed.content == plain.content, (
+        len(plain.content),
+        len(echoed.content),
+    )
+
+
+def test_a_non_default_value_still_overrides_the_preset(client):
+    """...while a value that differs from the default is still an instruction."""
+    from app.schemas.params import VectorizeParams
+    from app.services.engine import _tracer_kwargs
+
+    preset = _tracer_kwargs(VectorizeParams(), colours_are_pinned=False)
+    asked = _tracer_kwargs(
+        VectorizeParams.model_validate({"processing.corner_threshold": "20"}),
+        colours_are_pinned=False,
+    )
+    assert preset["corner_threshold"] != 20
+    assert asked["corner_threshold"] == 20
+
+
+def test_pixel_thresholds_keep_their_meaning_when_tracing_finer():
+    """Two of the tracer's knobs are measured in pixels, and the pixels change
+    size when the bitmap is traced at a multiple of its own resolution. Left
+    alone they quietly weaken: a 4-pixel shortest segment becomes 2 source
+    pixels, so the fitter starts following the staircase it was meant to cut
+    across, and the speckle filter loses three quarters of its reach."""
+    from app.schemas.params import VectorizeParams
+    from app.services.engine import _tracer_kwargs
+
+    params = VectorizeParams()
+    plain = _tracer_kwargs(params, colours_are_pinned=True, supersample=1)
+    finer = _tracer_kwargs(params, colours_are_pinned=True, supersample=2)
+
+    # A length scales with the factor, an area with its square.
+    assert finer["length_threshold"] == plain["length_threshold"] * 2
+    assert finer["filter_speckle"] == plain["filter_speckle"] * 4
+    # Angles are already scale-free and must not be touched.
+    assert finer["corner_threshold"] == plain["corner_threshold"]
+    assert finer["splice_threshold"] == plain["splice_threshold"]
+
+
+def test_boundary_smoothing_leaves_thin_features_untouched():
+    """Hard-quantizing a soft edge leaves a ragged fringe of single pixels,
+    and a mode filter settles it — but the same filter eats anything narrower
+    than its window, which is how a hairline outline gets chewed into dashes.
+    Smoothing therefore reaches only what is wide enough to survive it."""
+    from PIL import ImageDraw
+
+    from app.services.preprocess import _smooth_broad_boundaries
+
+    # ink 0 is the ground, 1 a broad block, 2 a line one pixel wide
+    ids = Image.new("P", (80, 60), 0)
+    draw = ImageDraw.Draw(ids)
+    draw.rectangle([10, 10, 50, 50], fill=1)
+    draw.line([(65, 5), (65, 55)], fill=2)
+    draw.point((66, 30), 2)  # a one-pixel bulge on the thread
+
+    def pixels(image):
+        return list(
+            Image.frombytes("L", image.size, image.tobytes()).get_flattened_data()
+        )
+
+    before = pixels(ids)
+    after = pixels(_smooth_broad_boundaries(ids))
+
+    # The thread and its bulge are narrower than the window: untouched.
+    assert [before[y * 80 + 65] for y in range(60)] == [
+        after[y * 80 + 65] for y in range(60)
+    ]
+    assert after[30 * 80 + 66] == 2
+
+    # The block is wide enough to smooth, so its sharp convex corners give up
+    # the single pixel that juts furthest out.
+    assert before[10 * 80 + 10] == 1 and after[10 * 80 + 10] == 0
+    # ...and nothing else moves: this pass rounds a pixel, it does not erode.
+    assert sum(1 for a, b in zip(before, after) if a != b) <= 4

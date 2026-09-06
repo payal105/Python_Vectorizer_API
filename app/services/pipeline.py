@@ -54,6 +54,8 @@ def _run_sync(
     t_prepared = time.perf_counter()
 
     traced = engine.trace(prepared, params)
+    # trace() may have preferred the finer copy of the bitmap.
+    prepared = traced.prepared or prepared
     t_traced = time.perf_counter()
 
     svg_bytes, geometry = svgdoc.build(
@@ -63,6 +65,7 @@ def _run_sync(
         prepared.traced_height,
         for_print=params.output_file_format in ("pdf", "eps"),
         palette=prepared.palette,
+        supersample=prepared.supersample,
     )
     t_built = time.perf_counter()
 

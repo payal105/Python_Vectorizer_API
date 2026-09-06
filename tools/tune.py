@@ -155,12 +155,14 @@ def run(data: bytes, overrides: dict[str, str], settings: Settings):
     params = VectorizeParams.model_validate(dict(overrides))
     prepared = preprocess.prepare(data, params, settings.max_input_pixels)
     traced = engine.trace(prepared, params)
+    prepared = traced.prepared or prepared
     svg, meta = svgdoc.build(
         traced.svg,
         params,
         prepared.traced_width,
         prepared.traced_height,
         palette=prepared.palette,
+        supersample=prepared.supersample,
     )
     return params, prepared, svg, meta
 

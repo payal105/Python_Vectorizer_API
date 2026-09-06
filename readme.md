@@ -403,33 +403,116 @@ preprocessing checks whether the image resolves to a handful of real inks. If
 it does, it uses them; if it does not — a photograph, a gradient — it leaves
 the image alone.
 
-Telling an ink from the transition tone beside it is the whole difficulty, and
-pixel counts cannot do it: on the test file the band along the letter edges
-covered *more* of the image (0.50%) than the sage green of the flower leaves
-(0.27%). What separates them is shape. A transition tone is a thread one or
-two pixels wide and is always a minority in its own neighbourhood; an ink
-fills regions. Weighing each candidate by what survives a mode filter puts the
-six real inks between 80.7% and 0.27%, and every transition tone below 0.03%.
+Telling an ink from the transition tone beside it is the whole difficulty,
+and two conditions have to hold together before a colour is dismissed. Either
+on its own gets a case badly wrong.
 
-Counting inks is not enough on its own, because a few bands cut through a
-gradient also come back as a short list. The second test is how far the
-pixels sit from the inks they would be mapped onto — near zero on flat
-artwork, since only the edge tones are far away, and several units once there
-is shading. Measured: **0.00** for a PNG logo, **0.81** for a lettering JPEG,
-**8.54** for a shaded sticker, **10.41** for a shaded sphere.
+It has to be **explained as a blend** of two inks already accepted — the
+pixels between a charcoal stroke and a cream fill lie on the line between the
+two. Area cannot decide this: on the test file the band along the letter
+edges covered *more* of the image (0.50%) than the sage green of the flower
+leaves (0.27%), so any threshold on size keeps the wrong one.
+
+And it has to be **thin**, holding almost nothing once a mode filter has
+removed everything that is merely a thread. Blend alone cannot decide it
+either, because a neutral grey sits exactly on the line between black and
+white: on this artwork that dismissed the grey background — eighty percent of
+the image — and took the whole palette with it.
+
+Together they are right in all four directions. A grey background is a blend
+but not thin. A charcoal hairline is thin but not a blend. An edge band is
+both. A flower leaf is neither.
+
+Counting inks is not enough on its own either, because a few bands cut through
+a gradient also come back as a short list. The last test is how far the
+pixels sit from the nearest ink — near zero on flat artwork, several units
+once there is shading. Measured: **0.00** for a PNG logo, **1.59** for a
+lettering JPEG, **2.93** for hard-edged shapes with heavy JPEG ringing,
+**9.58** for a shaded sticker, **26.50** for a shaded sphere.
 
 An explicit choice always outranks this: asking `processing.max_colors`,
 `processing.palette`, `processing.detail`, `processing.color_precision` or
 `processing.layer_difference` for anything other than its default turns it
 off, so `detail=maximum` still keeps every hairline feature and every scrap of
-compression noise the way it promises to. What counts is the value, not the
-mention — plenty of clients post every field they know about filled in with
-the defaults, and reading `processing.detail=standard` as an instruction would
-switch this off for them while looking like it had done nothing.
+compression noise the way it promises to.
 
-`processing.denoise` is deliberately not on that list: it runs before
-quantization and composes with it, so a sweep across denoise levels does not
-silently toggle a second behaviour.
+**What counts is the value, not the mention.** This holds for every parameter,
+not just these — the smoothing and detail presets, the denoise pass and the
+colour pipeline all decide on what a field *holds*, never on whether it was
+sent. Generated clients and Swagger's "Try it out" form post every field they
+know about, filled in with the values the schema showed them; reading that as
+an instruction gave those callers a different file from callers who sent
+nothing, quietly and for no reason they could see. Posting every parameter at
+its documented default now returns byte-for-byte what sending nothing returns.
+
+The cost is that a parameter cannot be set *to* its own default as an
+override. `processing.corner_threshold=60` reads as "no opinion", so the
+smoothing preset's 80 still wins; `processing.smoothing=none` is how you ask
+for 60.
+
+#### Tracing at twice the resolution
+
+A one-pixel line cannot be quantized evenly. Whether a given pixel lands on
+the dark side of the boundary depends on where the line falls *within* that
+pixel, so its width wanders — measured at 1–4 pixels on the reference artwork
+where the source varies 1–2 — and the curve fitter follows every wobble. That
+is what leaves a hairline outline looking thick in places and thin in others.
+
+Tracing the bitmap at twice its own resolution halves that wander relative to
+the line, and the outline comes out even: 194 traced shapes became 89 on the
+reference file. The extra pixels buy accuracy, not size — they show up in the
+`viewBox` and divide back out of the width and height, so the document is the
+same size it would otherwise be.
+
+Two of the tracer's knobs are measured in pixels, and pixels change size when
+the bitmap is doubled. Left alone they quietly weaken — a 4-pixel shortest
+segment becomes 2 source pixels, so the fitter starts following the staircase
+it was meant to cut across, and the speckle filter loses three quarters of its
+reach. Both are restored to what they mean at 1×: `length_threshold` scales
+with the factor, `shapes.min_area_px` with its square. On the reference file
+that took 89 traced shapes to 76 and the SVG from 683K to 506K.
+
+Hard-quantizing a soft edge also leaves it ragged: the ramp crosses the
+boundary, compression noise makes it cross back, and the fringe of single
+pixels gets traced. A mode filter settles that — and eats any hairline along
+with it, which is the original problem again. So it is applied only where it
+cannot do harm: a pixel sits in a structure at least three pixels wide exactly
+when some 3×3 window containing it holds a single ink, so mark the uniform
+windows, spread the mark by one pixel, and smooth only what it covers. On the
+reference file that touches 0.012% of the pixels and takes the SVG from 506K
+to 423K — the same curves with a sixth fewer nodes to edit. It costs about
+1.9s on a 9.3M-pixel bitmap, and runs only on the finer copy.
+
+What is left after that is the quantization boundary itself — steps of a
+single source pixel, visible only at heavy zoom. Removing those means letting
+the curve fitter cut corners, which `processing.smoothing=medium` does at a
+real cost: on a test image with a hard-cornered rectangle it rounded the
+corner off completely. So it stays a choice rather than a default.
+
+Resampling sharpens noise as readily as geometry, though. On a heavily
+compressed test image, where the tracer was already splitting one dark ring
+into two shades, the same treatment took 55 traced shapes to 154. Which way a
+given image goes cannot be read off the image, so it is measured rather than
+guessed: both are traced and whichever came out simpler is kept. That costs a
+second tracing pass — about 2.7s instead of 0.7s on a 1600px file — and it is
+skipped entirely for images with no detected palette, or large enough that
+doubling them would exceed the pixel budget.
+
+`processing.denoise` is deliberately not on that list, but it does change
+when it runs. A median filter is the right tool when the tracer will see raw
+pixels and the wrong one when every pixel is about to be mapped onto a known
+ink: it is redundant there, and it eats anything a pixel or two wide, because
+a hairline is a minority in its own window. On the test artwork the default
+median left the charcoal outline around the lettering thick in places, thin in
+others and broken into dashes. So denoising happens only when the colours are
+staying as they are, or when a level was asked for explicitly.
+
+The same reasoning applies to the speckle pass that runs after quantization.
+It clears specks of a pixel or two, but it requires seven of the nine pixels
+in a window to agree before touching anything — a pixel on a one-pixel line
+has two more of its own kind beside it, so only six agree, and the line
+survives. A plain mode filter took 6,154 pixels off that charcoal outline;
+this takes 557.
 
 **A colour budget does the same thing on demand.** `processing.max_colors`
 derives that many inks and maps both the pixels and the traced fills onto
@@ -494,6 +577,33 @@ To find a palette for your own artwork:
 Treat its output as a starting point — it reports the most-used distinct
 colours, which can include an anti-aliasing shade rather than a real ink
 colour. Edit the list before using it.
+
+### Checking a new image
+
+Most of what the pipeline does is decided automatically and is invisible in
+the finished file. `tools/audit.py` prints those decisions, so a new image can
+be checked in one line rather than opened in an editor and squinted at:
+
+```powershell
+.venv\Scripts\python.exe tools\audit.py samples\
+```
+
+```
+  file                         size        inks  resid  objects  fills     ms
+  sample_bump.jpeg             1600x1459      6   1.59       13      6    691
+      #666666 #fdf9dc #2b2a28 #ffffff #f19fc3 #c9cfa1
+  photoish.jpg                 600x600        -    nan        1      1    296
+```
+
+*inks* is the palette detected from the artwork and *resid* how far the
+average pixel sits from the nearest one; a dash means the image was read as
+continuous-tone and left alone, which is what should happen to a photograph.
+It warns about the failure modes worth knowing about — a palette that lost a
+colour the artwork clearly uses, an object count high enough to mean
+anti-aliasing is still being traced, and a residual close to the cutoff, where
+a slightly noisier version of the same image would be treated differently.
+
+Pass `--write DIR` to save each result as an SVG at the same time.
 
 ### Object count in Illustrator, Corel, Inkscape
 
