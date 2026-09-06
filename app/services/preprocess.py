@@ -380,6 +380,95 @@ def _mean_residual(rgb: Image.Image, inks: list[tuple[int, int, int]]) -> float:
     return error / weight if weight else 0.0
 
 
+# Deciding whether a colour is a band cut through a gradient.
+#
+# A gradient sliced into flat colours passes every test that asks "are the
+# pixels close to some ink" -- add enough bands and they always are. What gives
+# it away is where the bands sit in the picture: a band is the *only* thing
+# separating the two colours either side of it, because that is what a ramp is.
+# A real ink that happens to lie between two others in RGB -- a grey background
+# between black lettering and a white halo, say -- is not, because those two
+# also meet each other directly all over the artwork.
+#
+# Measured on a lettering JPEG and on strokes filled with a smooth gradient:
+# the grey background's neighbours touch each other 7,216 times directly
+# against 9,199 through it, a ratio of 0.78, while the gradient band's
+# neighbours touch **zero** times except through it.
+
+# How much of a candidate's border each of the two colours has to account for
+# before it is even considered to lie between them.
+_RAMP_MIN_SIDE = 0.25
+
+# ...and how rarely those two may meet elsewhere for it to be the ramp's doing
+# rather than a colour that merely sits between them.
+_RAMP_MAX_DIRECT = 0.15
+
+# The adjacency count runs a pass over the pixels in Python, so it gets a
+# smaller copy than the rest of detection. Boundaries survive the reduction --
+# it is which colours meet that matters, not exactly where.
+_RAMP_MAX_EDGE = 384
+
+
+def _adjacency(rgb: Image.Image, inks: list[tuple[int, int, int]]) -> list[list[int]]:
+    """How often each pair of inks meets along a boundary."""
+    work = rgb
+    if max(work.size) > _RAMP_MAX_EDGE:
+        scale = _RAMP_MAX_EDGE / max(work.size)
+        work = work.resize(
+            (max(1, int(work.width * scale)), max(1, int(work.height * scale))),
+            Image.Resampling.NEAREST,
+        )
+    probe, resolves = _blend_ramp(inks)
+    quantized = work.quantize(palette=probe, dither=Image.Dither.NONE)
+    ids = list(
+        Image.frombytes("P", quantized.size, quantized.tobytes().translate(resolves))
+        .get_flattened_data()
+    )
+    width, height = work.size
+    counts = [[0] * len(inks) for _ in inks]
+    for y in range(height):
+        row = y * width
+        for x in range(width - 1):
+            here, there = ids[row + x], ids[row + x + 1]
+            if here != there:
+                counts[here][there] += 1
+                counts[there][here] += 1
+    for y in range(height - 1):
+        row = y * width
+        for x in range(width):
+            here, there = ids[row + x], ids[row + width + x]
+            if here != there:
+                counts[here][there] += 1
+                counts[there][here] += 1
+    return counts
+
+
+def _has_gradient_band(rgb: Image.Image, inks: list[tuple[int, int, int]]) -> bool:
+    """True if one of *inks* is a slice through a ramp rather than an ink."""
+    if len(inks) < 3:
+        return False
+    counts = _adjacency(rgb, inks)
+    for index, colour in enumerate(inks):
+        border = sum(counts[index])
+        if not border:
+            continue
+        for left in range(len(inks)):
+            for right in range(left + 1, len(inks)):
+                if index in (left, right):
+                    continue
+                if not _explained_as_blend(colour, [inks[left], inks[right]]):
+                    continue
+                through = min(counts[index][left], counts[index][right])
+                if (
+                    counts[index][left] / border < _RAMP_MIN_SIDE
+                    or counts[index][right] / border < _RAMP_MIN_SIDE
+                ):
+                    continue
+                if not through or counts[left][right] / through <= _RAMP_MAX_DIRECT:
+                    return True
+    return False
+
+
 def _detect_flat_palette(rgb: Image.Image) -> list[tuple[int, int, int]] | None:
     """Return the artwork's inks, or None if it is not flat artwork.
 
@@ -395,6 +484,11 @@ def _detect_flat_palette(rgb: Image.Image) -> list[tuple[int, int, int]] | None:
     if not inks or len(inks) > _FLAT_MAX_INKS:
         return None
     if _mean_residual(rgb, inks) > _FLAT_MAX_RESIDUAL:
+        return None
+    # A gradient sliced into flat bands passes everything above -- add enough
+    # bands and the pixels are always close to one. Shaded artwork has to be
+    # left to the tracer, so one band anywhere declines the whole palette.
+    if _has_gradient_band(rgb, inks):
         return None
     return inks
 

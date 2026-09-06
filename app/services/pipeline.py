@@ -66,6 +66,7 @@ def _run_sync(
         for_print=params.output_file_format in ("pdf", "eps"),
         palette=prepared.palette,
         supersample=prepared.supersample,
+        shading=prepared.image,
     )
     t_built = time.perf_counter()
 

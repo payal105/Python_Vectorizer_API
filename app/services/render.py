@@ -8,6 +8,7 @@ be opened and edited in Illustrator, Inkscape or Affinity.
 from __future__ import annotations
 
 import io
+import re
 
 from app.config import Settings
 from app.core.errors import OutputTooLarge, RenderFailed, UnsupportedOutputFormat
@@ -18,6 +19,39 @@ from app.utils import units
 logger = get_logger("render")
 
 PRODUCER = "Python Vector API"
+
+
+_GRADIENT_RE = re.compile(
+    rb'<linearGradient[^>]*id="([^"]+)"[^>]*>(.*?)</linearGradient>', re.S
+)
+_STOP_RE = re.compile(rb'stop-color="#([0-9a-fA-F]{6})"')
+
+
+def flatten_gradients(svg_bytes: bytes) -> bytes:
+    """Replace every gradient fill with the colour halfway along it.
+
+    Neither of reportlab's PNG and PostScript backends supports a gradient --
+    they do not ignore one, they raise partway through drawing. Its PDF
+    backend does, and writes a real shading, so PDF and SVG keep the gradient
+    and the other two get the flat stand-in.
+    """
+    if b"linearGradient" not in svg_bytes:
+        return svg_bytes
+    middles: dict[bytes, bytes] = {}
+    for match in _GRADIENT_RE.finditer(svg_bytes):
+        stops = _STOP_RE.findall(match.group(2))
+        if not stops:
+            continue
+        channels = [
+            [int(stop[i : i + 2], 16) for i in (0, 2, 4)] for stop in stops
+        ]
+        average = [sum(c[i] for c in channels) // len(channels) for i in range(3)]
+        middles[match.group(1)] = b"#%02x%02x%02x" % tuple(average)
+    if not middles:
+        return svg_bytes
+    for name, colour in middles.items():
+        svg_bytes = svg_bytes.replace(b'"url(#' + name + b')"', b'"' + colour + b'"')
+    return re.sub(rb"<defs>.*?</defs>", b"", svg_bytes, flags=re.S)
 
 
 def _load_drawing(svg_bytes: bytes):
@@ -64,7 +98,9 @@ def to_pdf(svg_bytes: bytes, title: str = "Vectorized image") -> bytes:
 def to_eps(svg_bytes: bytes) -> bytes:
     from reportlab.graphics import renderPS
 
-    drawing = _load_drawing(svg_bytes)
+    # renderPS has no gradient support either, and fails the same way renderPM
+    # does. Only the PDF backend writes a real shading.
+    drawing = _load_drawing(flatten_gradients(svg_bytes))
     try:
         data = renderPS.drawToString(drawing)
     except Exception as exc:
@@ -82,7 +118,7 @@ def to_png(
     """Rasterize the *vector* result, so the PNG matches the vector exactly."""
     from reportlab.graphics import renderPM
 
-    drawing = _load_drawing(svg_bytes)
+    drawing = _load_drawing(flatten_gradients(svg_bytes))
 
     # drawing dimensions are points; renderPM scales by dpi/72, which lands on
     # exactly (css pixels x dpi/96) as intended.

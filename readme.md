@@ -423,6 +423,23 @@ Together they are right in all four directions. A grey background is a blend
 but not thin. A charcoal hairline is thin but not a blend. An edge band is
 both. A flower leaf is neither.
 
+A gradient sliced into flat bands passes all of that, though, and this is the
+one that bit hardest. Add enough bands and every pixel really is close to one
+of them, so no amount of counting colours or measuring how far pixels sit from
+them tells a ramp from flat artwork — on shaded lettering the residual came in
+at 1.61, well inside the cutoff, and the strokes came back as hard bands with
+the palest snapped onto the white of the halo.
+
+What gives a ramp away is *where its bands sit in the picture*. A band is the
+only thing separating the two colours either side of it, because that is what
+a ramp is. A real ink that merely lies between two others in RGB — a grey
+background between black lettering and a white halo — is not, because those
+two also meet each other directly all over the artwork. Measured: the grey
+background's neighbours touch 7,216 times directly against 9,199 through it,
+while the gradient band's neighbours touch **zero** times except through it.
+One such band anywhere declines the whole palette, and the artwork goes to the
+tracer unflattened.
+
 Counting inks is not enough on its own either, because a few bands cut through
 a gradient also come back as a short list. The last test is how far the
 pixels sit from the nearest ink — near zero on flat artwork, several units
@@ -483,11 +500,112 @@ reference file that touches 0.012% of the pixels and takes the SVG from 506K
 to 423K — the same curves with a sixth fewer nodes to edit. It costs about
 1.9s on a 9.3M-pixel bitmap, and runs only on the finer copy.
 
-What is left after that is the quantization boundary itself — steps of a
-single source pixel, visible only at heavy zoom. Removing those means letting
-the curve fitter cut corners, which `processing.smoothing=medium` does at a
-real cost: on a test image with a hard-cornered rectangle it rounded the
-corner off completely. So it stays a choice rather than a default.
+Below one source pixel there is nothing real left for the fitter to follow —
+whatever wobble survives at that scale is where the quantizer happened to put
+the boundary, not something the artwork contains. So when the bitmap is traced
+finer, the fitter is given more latitude to cut across it: longer segments,
+curves spliced rather than cornered, and more passes to settle them. On the
+reference file that took 10,488 curve segments to 8,855 and the SVG from 420K
+to 346K.
+
+`corner_threshold` is deliberately left out of that. It is the angle below
+which a bend stays a hard corner, so anything above 90 rounds off a right
+angle — the `medium` preset's 110 turned a test rectangle's corner into a
+visible curve, while the changes above left the same rectangle pixel-identical
+to the conservative setting. Everything that was raised smooths the long runs
+between corners and leaves the corners themselves alone.
+
+`processing.smoothing=medium` or `high` will go further, and is safe on
+artwork with no sharp corners to lose — hand-lettering, say. It is not a
+default for the reason just given.
+
+#### Fusing the segments
+
+What is left after all of that is a gentle waviness, and its cause is simply
+that there are too many nodes. Every node the tracer emits marks somewhere the
+pixel boundary turned, so a run of them along one gentle curve is a run of
+chances to wander.
+
+So neighbouring segments are fused wherever a single cubic covers both to
+within **1.2 source pixels**, checked by sampling the pair and its replacement
+rather than trusting the algebra. The join lands at some fraction along the
+pair, so each outer handle is stretched by that fraction to span the whole
+thing, and a corner is never fused across. Repeating the pass helps: every
+round leaves fewer, longer segments, and a pair too curved to span before
+often is not next time. On the reference file the outline went from 8,823
+curve segments to 6,424 and the SVG from 347K to 259K, and a long edge reads
+as one stroke rather than a chain of them.
+
+Corners are found by measuring direction across a span of outline rather than
+at a single node, because the tracer often splits one in two: a right angle
+came back as a pair of 44-degree turns, neither of which looks like a corner
+on its own.
+
+Two other things were tried here and **removed**, because both quietly wrecked
+thin artwork. Rotating the handles either side of a node onto the tangent a
+smooth curve would have takes the kinks out, and easing nodes towards the line
+between their neighbours takes out the pixel-level zigzag — but both move the
+curve *between* nodes, and where two sides of a one-pixel outline run close
+together that is enough to swallow the gap. On the reference lettering the
+charcoal outline came out thick and lumpy at the top of an O with its white
+halo gone. Fusing segments does not have that failure mode: it only ever
+replaces two curves with one that provably runs where they did.
+
+`processing.smoothing=medium` or `high` will go further, and is safe on
+artwork with no sharp corners to lose — hand-lettering, say. It is not a
+default for the reason just given.
+
+#### Straightening the curve itself
+
+What survives all of that is a *tangent break*: the segment arriving at a node
+points one way and the segment leaving it points another, so the outline
+visibly corners where the artwork does not. The node itself is usually right —
+it sits on the boundary the tracer found — so the fix is to leave every node
+exactly where it is and rotate only the two handles either side of it onto the
+tangent a smooth curve would have there. Handle lengths are untouched, so the
+curve keeps its shape between nodes, and a node whose tangents disagree by
+more than 60° is a real corner and keeps its break.
+
+Refitting the nodes instead — interpolating a fresh curve through them — was
+tried first and is much worse. The tracer's nodes are sparse and its curvature
+lives in the handles, so discarding those flattens long arcs into chords; on
+the reference artwork it turned the outlines into a row of spikes. The uniform
+Catmull-Rom form also gives handles five times their own chord on unevenly
+spaced nodes, which loops a segment right over itself.
+
+Aligning the handles is not the whole job, though, because the curve still has
+to pass through nodes that zigzag by a pixel wherever the quantizer rounded one
+way and then the other. So each node is also eased towards the line between its
+neighbours — carrying its two handles with it, so that piece of outline slides
+rather than swinging — under three rules that each fix something that went
+wrong without them:
+
+* **Half a step, alternating with a slightly larger one back.** A full step
+  overshoots to the far side and the zigzag simply inverts, pass after pass.
+  And easing every node towards its neighbours drags a curve onto its own
+  chords: on a test ring it pulled every node inward by more than the wobble it
+  was removing. Taubin's second step restores that without bringing the zigzag
+  back.
+* **A budget on where a node ends up**, not on how far it travelled getting
+  there — the two steps of a pair mostly cancel, so counting both exhausts the
+  allowance without the node having moved. Nothing drifts more than a pixel
+  from where the tracer put it.
+* **Corners measured across a span of outline**, not at a single node. The
+  tracer often splits a corner in two: a right angle came back as a pair of
+  44-degree turns, neither of which looks like a corner on its own, and
+  smoothing duly rounded it off.
+
+What remains after all of that is not a zigzag but a gentle waviness, and
+easing nodes cannot touch it — Taubin's whole point is that it leaves the low
+frequencies where they are. The cause is simply that there are too many nodes:
+each one marks somewhere the pixel boundary turned, so a run of them along one
+gentle curve is a run of chances to wander. So neighbouring segments are fused
+wherever a single cubic covers both to within **0.8 source pixels**, measured
+by sampling the pair and its replacement. Repeating that helps, because every
+pass leaves fewer and longer segments and a pair too curved to span before may
+not be next time. On the reference file the outline went from 8,823 curve
+segments to 7,287 and the SVG from 399K to 329K, and a long edge finally reads
+as one stroke rather than a chain of them.
 
 Resampling sharpens noise as readily as geometry, though. On a heavily
 compressed test image, where the tracer was already splitting one dark ring
@@ -604,6 +722,43 @@ anti-aliasing is still being traced, and a residual close to the cutoff, where
 a slightly noisier version of the same image would be treated differently.
 
 Pass `--write DIR` to save each result as an SVG at the same time.
+
+### Shaded artwork and gradients
+
+The tracer only ever emits flat fills, so shaded artwork had nowhere to go.
+Banding it into narrow strips reads as stripes; collapsing each region to one
+colour throws the shading away. Neither is what the artwork says.
+
+The shading in this kind of work is almost always a straight ramp, though —
+fitting one to a shaded sticker's lettering left a residual of **0.29 out of
+255** — and SVG has had a construct for exactly that since the beginning. So
+each flat fill is checked against the pixels it came from, and where those
+pixels lie on a ramp the fill is replaced by a `linearGradient` along it:
+
+```xml
+<defs><linearGradient id="shade0" gradientUnits="userSpaceOnUse"
+      x1="419.6" y1="102" x2="419.6" y2="498">
+  <stop offset="0" stop-color="#ce8c9e"/><stop offset="1" stop-color="#efd5db"/>
+</linearGradient></defs>
+<path d="…" fill="url(#shade0)"/>
+```
+
+A fill has to earn it: the pixels must sit within 8 of the fitted ramp, the
+colour must travel at least 24 from one end of the region to the other, and
+there must be at least 200 of them. Flat artwork comes back with the flat
+fills it had.
+
+Gradients are only looked for when the colours were left as the artwork had
+them. A pinned palette, a colour budget, or a palette the detector found all
+mean the artwork was already judged flat, and the fills stay flat.
+
+**Format support is uneven, and it is reportlab's, not ours.** Its PDF backend
+writes a real `/Shading`, so PDF and SVG both keep the gradient. Its PNG and
+PostScript backends have no gradient support at all — they do not ignore one,
+they raise partway through drawing — so for those two each gradient fill is
+replaced by the colour halfway along it. The PNG is a preview and the flat
+stand-in is honest about that; if you need EPS with real shading, that needs a
+different renderer.
 
 ### Object count in Illustrator, Corel, Inkscape
 

@@ -642,13 +642,37 @@ def _banded_artwork() -> bytes:
     return buffer.getvalue()
 
 
-def test_color_merge_collapses_near_duplicate_fills(client):
+def _built(art: bytes, **overrides) -> bytes:
+    """Run the real chain but stop short of fitting gradients.
+
+    The banded fixture is a gradient by construction, so end to end its fills
+    are replaced by a linearGradient and there is nothing left to count. This
+    keeps the measurement on the stage under test.
+    """
+    from app.schemas.params import VectorizeParams
+    from app.services import engine, preprocess, svgdoc
+
+    params = VectorizeParams.model_validate(dict(overrides))
+    prepared = preprocess.prepare(art, params, 4_000_000)
+    traced = engine.trace(prepared, params)
+    used = traced.prepared or prepared
+    svg, _ = svgdoc.build(
+        traced.svg,
+        params,
+        used.traced_width,
+        used.traced_height,
+        palette=used.palette,
+        supersample=used.supersample,
+    )
+    return svg
+
+
+def test_color_merge_collapses_near_duplicate_fills():
     """Anti-aliasing between two flat regions leaves transition shapes, often
     split into fills a single RGB unit apart. No tracer setting merges those."""
     art = _banded_artwork()
-    off = post(client, art, name="a.jpg", **{"processing.color_merge": "0"})
-    on = post(client, art, name="a.jpg", **{"processing.color_merge": "40"})
-    before, after = _fills(off.content), _fills(on.content)
+    before = _fills(_built(art, **{"processing.color_merge": "0"}))
+    after = _fills(_built(art, **{"processing.color_merge": "40"}))
     # The fixture reliably produces pairs like #4c3e46 / #4c3e47.
     assert len(before) > 5, f"fixture should exercise the merge, got {before}"
     assert len(after) < len(before), (before, after)
@@ -1451,16 +1475,28 @@ def test_pixel_thresholds_keep_their_meaning_when_tracing_finer():
     from app.schemas.params import VectorizeParams
     from app.services.engine import _tracer_kwargs
 
+    from app.services.engine import _FINER_LATITUDE
+
     params = VectorizeParams()
     plain = _tracer_kwargs(params, colours_are_pinned=True, supersample=1)
     finer = _tracer_kwargs(params, colours_are_pinned=True, supersample=2)
 
-    # A length scales with the factor, an area with its square.
-    assert finer["length_threshold"] == plain["length_threshold"] * 2
+    # A length scales with the factor, an area with its square. The length
+    # gets a further nudge, because below one source pixel there is nothing
+    # real left for the fitter to follow.
     assert finer["filter_speckle"] == plain["filter_speckle"] * 4
-    # Angles are already scale-free and must not be touched.
+    assert finer["length_threshold"] == (
+        plain["length_threshold"] * 2 * _FINER_LATITUDE
+    )
+
+    # corner_threshold is the angle below which a bend stays a hard corner,
+    # so anything above 90 rounds off a right angle. It must not move.
     assert finer["corner_threshold"] == plain["corner_threshold"]
-    assert finer["splice_threshold"] == plain["splice_threshold"]
+    assert finer["corner_threshold"] <= 90
+
+    # The rest of the fitter's freedom does open up.
+    assert finer["splice_threshold"] > plain["splice_threshold"]
+    assert finer["max_iterations"] > plain["max_iterations"]
 
 
 def test_boundary_smoothing_leaves_thin_features_untouched():
@@ -1498,3 +1534,255 @@ def test_boundary_smoothing_leaves_thin_features_untouched():
     assert before[10 * 80 + 10] == 1 and after[10 * 80 + 10] == 0
     # ...and nothing else moves: this pass rounds a pixel, it does not erode.
     assert sum(1 for a, b in zip(before, after) if a != b) <= 4
+
+
+def test_a_right_angle_survives_the_finer_trace(client):
+    """The fitter is given more latitude when the bitmap is traced finer,
+    because below one source pixel there is nothing real left to follow. That
+    latitude must not extend to corner_threshold: it is the angle below which
+    a bend stays a hard corner, so anything above 90 rounds off a right angle
+    — raising it to the 'medium' preset's 110 turned a test rectangle's corner
+    into a visible curve."""
+    from PIL import ImageDraw
+
+    image = Image.new("RGB", (300, 300), "#f4f1de")
+    draw = ImageDraw.Draw(image)
+    draw.rectangle([80, 80, 260, 260], fill="#3d405b")
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+
+    response = post(
+        client,
+        buffer.getvalue(),
+        name="corner.png",
+        **{"output.file_format": "png", "output.bitmap.dpi": "96"},
+    )
+    assert response.status_code == 200
+    out = Image.open(io.BytesIO(response.content)).convert("RGB")
+
+    def dark(x, y):
+        return sum(out.getpixel((x, y))) < 380
+
+    # The corner pixel itself, and both edges leading into it, stay filled.
+    assert dark(82, 82), out.getpixel((82, 82))
+    assert dark(84, 170) and dark(170, 84)
+    # ...and the ground just outside the corner stays clear.
+    assert not dark(76, 76), out.getpixel((76, 76))
+
+
+def _ring(nodes: int, radius: float, wobble: float = 0.0) -> list[tuple[float, float]]:
+    import math
+
+    points = []
+    for index in range(nodes):
+        angle = 2 * math.pi * index / nodes
+        reach = radius + (wobble if index % 2 else -wobble)
+        points.append((reach * math.cos(angle), reach * math.sin(angle)))
+    return points
+
+
+def _as_path(points, skew_at: int | None = None, skew: float = 20.0) -> str:
+    """Join points with cubics whose handles lie along the chords."""
+    import math
+
+    count = len(points)
+    pieces = ["M%.4f %.4f" % points[0]]
+    for index in range(count):
+        here, there = points[index], points[(index + 1) % count]
+        dx, dy = there[0] - here[0], there[1] - here[1]
+        if index == skew_at:
+            angle = math.radians(skew)
+            dx, dy = (
+                dx * math.cos(angle) - dy * math.sin(angle),
+                dx * math.sin(angle) + dy * math.cos(angle),
+            )
+        pieces.append(
+            "C%.4f %.4f %.4f %.4f %.4f %.4f"
+            % (
+                here[0] + dx / 3, here[1] + dy / 3,
+                there[0] - (there[0] - here[0]) / 3, there[1] - (there[1] - here[1]) / 3,
+                there[0], there[1],
+            )
+        )
+    return "".join(pieces) + "Z"
+
+
+def test_a_corner_split_across_two_nodes_is_still_a_corner():
+    """The tracer often puts a corner between two nodes rather than on one: a
+    right angle came back as a pair of 44-degree turns, neither of which looks
+    like a corner on its own. Measuring the direction across a span of outline
+    adds the halves back together."""
+    from app.services.svgdoc import _corner_flags, _segments
+
+    # A square with each corner cut into two 45-degree steps.
+    points = []
+    for x, y in ((-50, -50), (50, -50), (50, 50), (-50, 50)):
+        points.append((x * 0.94, y))
+        points.append((x, y * 0.94))
+    d = _as_path(points)
+    closed, segments, _ = _segments(d)[0]
+
+    flags = _corner_flags(segments, len(segments), 3.0)
+    assert sum(flags) >= 4, flags
+
+
+def test_simplification_fuses_segments_without_moving_the_curve():
+    """Every node the tracer emits marks somewhere the pixel boundary turned,
+    so a run of them along one gentle curve is a run of chances to wobble.
+    Fusing neighbours into a single segment is what makes a long edge read as
+    one stroke — provided the replacement runs where the pair did."""
+    import math
+
+    from app.services.svgdoc import _cubic_at, _segments, _smooth_path_data
+
+    d = _as_path(_ring(48, 120.0))
+    before = _segments(d)[0][1]
+    after = _segments(_smooth_path_data(d, 1.0, 1.2))[0][1]
+
+    assert len(after) < len(before) * 0.8, (len(before), len(after))
+
+    # Walk the simplified outline and check it never strays far from the ring
+    # it came from, so the letterform is where it was, with fewer nodes.
+    start = after[-1][4:6]
+    worst = 0.0
+    for segment in after:
+        for step in range(9):
+            point = _cubic_at(segment, start, step / 8)
+            worst = max(worst, abs(math.hypot(*point) - 120.0))
+        start = segment[4:6]
+    assert worst < 1.5, worst
+
+
+def _gradient_strokes() -> bytes:
+    """Thick strokes filled with a smooth ramp, haloed and outlined.
+
+    This is what a lot of sticker lettering looks like, and it is the case
+    that counting colours cannot tell from flat artwork: slice a ramp into
+    enough bands and every pixel is close to one of them.
+    """
+    from PIL import ImageDraw
+
+    image = Image.new("RGB", (700, 500), "#9a9a9a")
+    draw = ImageDraw.Draw(image)
+    for x in (140, 260, 380, 500):
+        draw.rounded_rectangle([x - 34, 112, x + 34, 408], radius=34, fill="#ffffff")
+        draw.rounded_rectangle([x - 29, 117, x + 29, 403], radius=29, fill="#2b2b33")
+        for y in range(120, 401):
+            t = (y - 120) / 280
+            draw.rectangle(
+                [x - 26, y, x + 26, y + 1],
+                fill=(
+                    int(214 + (244 - 214) * t),
+                    int(150 + (214 - 150) * t),
+                    int(166 + (222 - 166) * t),
+                ),
+            )
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+def test_shaded_artwork_is_not_flattened_into_bands():
+    """A gradient sliced into flat colours satisfies every test that asks
+    whether the pixels are close to *some* ink — add enough bands and they
+    always are. What gives it away is where the bands sit: a band is the only
+    thing separating the two colours either side of it, because that is what a
+    ramp is. A real ink that merely lies between two others in RGB — a grey
+    background between black lettering and a white halo — is not, because
+    those two meet each other directly all over the artwork."""
+    from app.services.preprocess import _detect_flat_palette
+
+    shaded = Image.open(io.BytesIO(_gradient_strokes())).convert("RGB")
+    assert _detect_flat_palette(shaded) is None
+
+    # ...while the flat case with a grey background between black and white
+    # keeps its palette.
+    from PIL import ImageDraw
+
+    flat = Image.new("RGB", (400, 300), "#666666")
+    draw = ImageDraw.Draw(flat)
+    draw.ellipse([60, 40, 340, 260], fill="#ffffff")
+    draw.ellipse([70, 50, 330, 250], fill="#111111")
+    draw.ellipse([120, 90, 280, 210], fill="#666666")
+    inks = _detect_flat_palette(flat)
+    assert inks is not None and len(inks) == 3, inks
+
+
+def test_a_gradient_keeps_its_shading_end_to_end(client):
+    """The visible symptom: a stroke that shades from pink to pale came back
+    as hard bands, the palest of which landed on white."""
+    response = post(client, _gradient_strokes(), name="grad.png")
+    assert response.status_code == 200
+    assert "X-Color-Count" not in response.headers or not response.headers.get(
+        "X-Color-Count"
+    )
+    fills = {f.decode().lower() for f in re.findall(rb'fill="(#[0-9a-fA-F]{6})"', response.content)}
+    # No flat palette means no banding: the pale end of the ramp must not have
+    # been snapped onto the white of the halo.
+    pinks = [f for f in fills if f not in ("#ffffff", "#9a9a9a", "#2b2b33")]
+    assert len(pinks) <= 3, sorted(fills)
+
+
+def test_shaded_regions_come_out_as_gradients():
+    """The tracer only emits flat fills, so shaded artwork had nowhere to go:
+    banding it reads as stripes and collapsing it throws the shading away.
+    The shading in this kind of artwork is a straight ramp, though, and SVG
+    has a construct for exactly that."""
+    import re as _re
+
+    from app.schemas.params import VectorizeParams
+    from app.services import engine, preprocess, svgdoc
+
+    art = _gradient_strokes()
+    params = VectorizeParams()
+    prepared = preprocess.prepare(art, params, 40_000_000)
+    traced = engine.trace(prepared, params)
+    used = traced.prepared or prepared
+    svg, meta = svgdoc.build(
+        traced.svg,
+        params,
+        used.traced_width,
+        used.traced_height,
+        palette=used.palette,
+        supersample=used.supersample,
+        shading=used.image,
+    )
+    assert meta["gradients"] == 1, meta
+    assert b"<linearGradient" in svg
+    assert b'fill="url(#shade0)"' in svg
+
+    # The stops have to be the ends of the artwork's own ramp, not guesses.
+    stops = [
+        tuple(int(s[i : i + 2], 16) for i in (0, 2, 4))
+        for s in _re.findall(rb'stop-color="#([0-9a-fA-F]{6})"', svg)
+    ]
+    assert len(stops) == 2
+    source = Image.open(io.BytesIO(art)).convert("RGB")
+    top, bottom = source.getpixel((140, 130)), source.getpixel((140, 395))
+    for fitted, actual in ((stops[0], top), (stops[1], bottom)):
+        assert max(abs(a - b) for a, b in zip(fitted, actual)) <= 12, (fitted, actual)
+
+
+def test_flat_artwork_gets_no_gradients(client):
+    """A gradient is only ever fitted where the pixels are a ramp; flat work
+    must come back with the flat fills it had."""
+    response = post(client, jpeg_bytes(), name="a.jpg")
+    assert response.status_code == 200
+    assert b"linearGradient" not in response.content
+
+
+@pytest.mark.parametrize("fmt", ["svg", "pdf", "eps", "png"])
+def test_every_format_survives_a_gradient(client, fmt):
+    """Only reportlab's PDF backend can draw a gradient. Its PNG and
+    PostScript backends do not ignore one, they raise partway through, so
+    those two get a flat stand-in rather than a 500."""
+    response = post(
+        client, _gradient_strokes(), name="g.png", **{"output.file_format": fmt}
+    )
+    assert response.status_code == 200, response.text
+    if fmt == "svg":
+        assert b"<linearGradient" in response.content
+    if fmt == "pdf":
+        assert b"/Shading" in response.content  # a real gradient, not flattened
+    if fmt in ("png", "eps"):
+        assert b"linearGradient" not in response.content

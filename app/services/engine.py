@@ -101,6 +101,14 @@ _PRESET_OVERRIDES = {
     "length_threshold": "processing_length_threshold",
 }
 
+# Extra latitude for the curve fitter when the bitmap was traced finer than
+# the artwork. Measured on the reference file at 2x: 10,488 curve segments
+# became 8,855 and the SVG 420K became 346K, with a hard-cornered test
+# rectangle coming out pixel-identical to the conservative setting.
+_FINER_LATITUDE = 1.5
+_FINER_SPLICE = 80
+_FINER_ITERATIONS = 32
+
 ENGINE_NAME = "vtracer"
 
 
@@ -174,6 +182,27 @@ def _tracer_kwargs(
     # an area with its square.
     length_threshold = float(tuned["length_threshold"]) * supersample
     filter_speckle = int(detail["filter_speckle"]) * supersample**2
+    splice_threshold = int(tuned["splice_threshold"])
+    max_iterations = int(tuned["max_iterations"])
+
+    # Below one source pixel there is nothing real left to follow: whatever
+    # wobble survives at that scale is where the quantizer happened to put the
+    # boundary, not something the artwork contains. So the fitter is given
+    # more latitude to cut across it -- longer segments, curves spliced rather
+    # than cornered, and more passes to settle them.
+    #
+    # corner_threshold is deliberately left alone. It is the angle below which
+    # a bend stays a hard corner, so anything above 90 rounds off a right
+    # angle: raising it to the 110 of the 'medium' preset turned a test
+    # rectangle's corner into a visible curve. Everything else here smooths
+    # the long runs between corners and leaves the corners themselves intact.
+    if supersample > 1:
+        if not params.asked_for("processing_length_threshold"):
+            length_threshold *= _FINER_LATITUDE
+        if not params.asked_for("processing_splice_threshold"):
+            splice_threshold = max(splice_threshold, _FINER_SPLICE)
+        if not params.asked_for("processing_max_iterations"):
+            max_iterations = max(max_iterations, _FINER_ITERATIONS)
 
     return {
         "colormode": params.processing_color_mode,
@@ -184,8 +213,8 @@ def _tracer_kwargs(
         "layer_difference": layer_difference,
         "corner_threshold": int(tuned["corner_threshold"]),
         "length_threshold": length_threshold,
-        "max_iterations": int(tuned["max_iterations"]),
-        "splice_threshold": int(tuned["splice_threshold"]),
+        "max_iterations": max_iterations,
+        "splice_threshold": splice_threshold,
         "path_precision": path_precision,
     }
 

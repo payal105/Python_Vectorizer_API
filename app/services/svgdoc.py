@@ -8,10 +8,12 @@ watermarking.
 
 from __future__ import annotations
 
+import math
 import re
 from collections import OrderedDict
 
 from lxml import etree
+from PIL import Image
 
 from app.core.errors import VectorizationFailed
 from app.schemas.params import VectorizeParams
@@ -402,6 +404,440 @@ def _combine_by_color(
     return combined
 
 
+
+# --- curve smoothing ---------------------------------------------------------
+#
+# The tracer puts a node wherever the pixel boundary turns, so a boundary that
+# wobbles by a pixel gets a node for every wobble and the curve visibly
+# notches. Nothing upstream can fix that: at the scale of one source pixel,
+# where the boundary sits was decided by rounding, not by the artwork.
+#
+# So the notches are taken out of the curve itself. Each node is nudged toward
+# the line between its neighbours -- never further than half a source pixel,
+# which is smaller than the uncertainty that put it there -- and the segments
+# are refitted through the result. Corners are found first and held still, so
+# a letter keeps its joins and a logo keeps its right angles.
+
+# A node whose tangent turns by more than this is a corner and is left alone.
+# Kept below 90 so a right angle is always a corner.
+_SMOOTH_CORNER_DEGREES = 60.0
+
+
+def _segments(d: str) -> list[tuple[bool, list[list[float]], list[float]]] | None:
+    """Split path data into subpaths of cubic segments. None if unsupported.
+
+    Every segment comes back as ``[c1x, c1y, c2x, c2y, x, y]`` -- a line gets
+    control points along its own chord -- so the rest of the code has one
+    shape to deal with.
+    """
+    subpaths: list[tuple[bool, list[list[float]], list[float]]] = []
+    current: list[list[float]] = []
+    start: list[float] | None = None
+    here: list[float] | None = None
+    closed = False
+
+    for command, body in _COMMAND_RE.findall(d):
+        if command not in _PAIRS_PER_COMMAND:
+            return None
+        numbers = [float(n) for n in _NUMBER_RE.findall(body)]
+        if command == "Z":
+            closed = True
+            continue
+        if len(numbers) % 2:
+            return None
+        if command == "M":
+            if current and start is not None:
+                subpaths.append((closed, current, start))
+            closed = False
+            start = here = numbers[:2]
+            current = []
+            numbers = numbers[2:]
+            command = "L"
+        if here is None:
+            return None
+        step = _PAIRS_PER_COMMAND[command] * 2
+        if command == "Q":
+            return None  # quadratics are not emitted by the tracer
+        for index in range(0, len(numbers), step):
+            chunk = numbers[index : index + step]
+            if len(chunk) < step:
+                return None
+            if command == "L":
+                end = chunk
+                c1 = [here[0] + (end[0] - here[0]) / 3, here[1] + (end[1] - here[1]) / 3]
+                c2 = [here[0] + 2 * (end[0] - here[0]) / 3, here[1] + 2 * (end[1] - here[1]) / 3]
+                current.append(c1 + c2 + end)
+            else:
+                current.append(list(chunk))
+            here = current[-1][4:6]
+    if current and start is not None:
+        subpaths.append((closed, current, start))
+    return subpaths
+
+
+def _turn_degrees(before: list[float], node: list[float], after: list[float]) -> float:
+    ax, ay = node[0] - before[0], node[1] - before[1]
+    bx, by = after[0] - node[0], after[1] - node[1]
+    if (ax or ay) and (bx or by):
+        cross = ax * by - ay * bx
+        dot = ax * bx + ay * by
+        return abs(math.degrees(math.atan2(cross, dot)))
+    return 0.0
+
+
+# How much outline either side of a node is looked at when deciding whether it
+# is a corner, in source pixels. Long enough to add a split corner back
+# together, short enough that a gentle curve does not accumulate into one.
+_CORNER_SPAN = 3.0
+
+
+def _corner_flags(
+    segments: list[list[float]], count: int, span: float
+) -> list[bool]:
+    """Which nodes the curve genuinely turns at, rather than merely wobbling.
+
+    Comparing the two handles at a node is not enough. The tracer often splits
+    one corner across two nodes -- a right angle came back as a pair of
+    44-degree turns, neither of which looks like a corner on its own, and
+    smoothing duly rounded it off. So the direction is measured across a span
+    of outline either side instead, which adds a split corner back together
+    and averages out a wobble at the same time.
+    """
+    nodes = [segment[4:6] for segment in segments]
+
+    def reach(index: int, step: int) -> list[float]:
+        travelled = 0.0
+        cursor = index
+        for _ in range(count):
+            following = (cursor + step) % count
+            travelled += math.dist(nodes[cursor], nodes[following])
+            cursor = following
+            if travelled >= span:
+                break
+        return nodes[cursor]
+
+    flags = []
+    for index in range(count):
+        before, after = reach(index, -1), reach(index, 1)
+        flags.append(
+            _turn_degrees(before, nodes[index], after) > _SMOOTH_CORNER_DEGREES
+        )
+    return flags
+
+
+# How far the simplified curve may stray from the one the tracer produced, in
+# source pixels. Every node the tracer emitted marks somewhere the pixel
+# boundary turned, so a run of them along one gentle curve is a run of chances
+# to wobble; fusing those into a single segment is what finally makes a long
+# edge read as one stroke. Kept below half a pixel so the outline still lands
+# where the tracer found it.
+_SIMPLIFY_TOLERANCE = 1.2
+
+# Points sampled along a pair of segments when measuring how far their
+# replacement strays. Enough to catch a bulge in the middle without making the
+# check the expensive part of the pass.
+_SIMPLIFY_SAMPLES = 8
+
+
+def _cubic_at(segment: list[float], start: list[float], t: float) -> tuple[float, float]:
+    """A point on the cubic that runs from *start* through *segment*."""
+    u = 1.0 - t
+    a, b, c, d = u * u * u, 3 * u * u * t, 3 * u * t * t, t * t * t
+    return (
+        a * start[0] + b * segment[0] + c * segment[2] + d * segment[4],
+        a * start[1] + b * segment[1] + c * segment[3] + d * segment[5],
+    )
+
+
+def _fuse(
+    first: list[float], second: list[float], start: list[float]
+) -> list[float] | None:
+    """One cubic covering both, or None if the two cannot be spanned.
+
+    The join between them lands at some fraction of the way along the pair, so
+    each outer handle is stretched by that fraction to cover the whole span.
+    """
+    middle = first[4:6]
+    span = math.dist(start, middle) + math.dist(middle, second[4:6])
+    if not span:
+        return None
+    share = math.dist(start, middle) / span
+    if share <= 0.0 or share >= 1.0:
+        return None
+    return [
+        start[0] + (first[0] - start[0]) / share,
+        start[1] + (first[1] - start[1]) / share,
+        second[4] + (second[2] - second[4]) / (1.0 - share),
+        second[5] + (second[3] - second[5]) / (1.0 - share),
+        second[4],
+        second[5],
+    ]
+
+
+def _strays(
+    fused: list[float],
+    first: list[float],
+    second: list[float],
+    start: list[float],
+    tolerance: float,
+) -> bool:
+    """True if the fused curve wanders further than *tolerance* from the pair."""
+    for index in range(1, _SIMPLIFY_SAMPLES):
+        t = index / _SIMPLIFY_SAMPLES
+        if t < 0.5:
+            original = _cubic_at(first, start, t * 2)
+        else:
+            original = _cubic_at(second, first[4:6], (t - 0.5) * 2)
+        if math.dist(original, _cubic_at(fused, start, t)) > tolerance:
+            return True
+    return False
+
+
+def _simplify_subpath(
+    segments: list[list[float]], corner: list[bool], tolerance: float
+) -> tuple[list[list[float]], list[bool]] | None:
+    """Fuse neighbouring segments wherever one curve will do for both."""
+    count = len(segments)
+    if count < 5:
+        return None
+
+    keep: list[list[float]] = []
+    keep_corner: list[bool] = []
+    index = 0
+    fused_any = False
+    while index < count:
+        segment = segments[index]
+        following = index + 1
+        # The node between the pair is the one that would disappear, so it has
+        # to be an ordinary node, and the pair has to stay inside the subpath.
+        if following < count and not corner[index]:
+            start = segments[index - 1][4:6] if index else segments[-1][4:6]
+            fused = _fuse(segment, segments[following], start)
+            if fused is not None and not _strays(
+                fused, segment, segments[following], start, tolerance
+            ):
+                keep.append(fused)
+                keep_corner.append(corner[following])
+                index += 2
+                fused_any = True
+                continue
+        keep.append(list(segment))
+        keep_corner.append(corner[index])
+        index += 1
+    return (keep, keep_corner) if fused_any else None
+
+
+def _smooth_subpath(
+    segments: list[list[float]], closed: bool, tolerance: float, span: float
+) -> list[list[float]]:
+    """Fuse neighbouring segments until one curve will not do for two."""
+    count = len(segments)
+    if count < 5 or not closed or not tolerance:
+        return segments
+
+    corners = _corner_flags(segments, count, span)
+    while True:
+        fused = _simplify_subpath(segments, corners, tolerance)
+        if fused is None:
+            return segments
+        segments, corners = fused
+
+
+def _smooth_path_data(d: str, tolerance: float, span: float) -> str | None:
+    """Rewrite path data with fewer, longer segments. None if left alone."""
+    subpaths = _segments(d)
+    if not subpaths:
+        return None
+    out = []
+    for closed, segments, start in subpaths:
+        smoothed = _smooth_subpath(segments, closed, tolerance, span)
+        out.append("M" + " ".join(_fmt(v) for v in start))
+        for segment in smoothed:
+            out.append("C" + " ".join(_fmt(v) for v in segment))
+        if closed:
+            out.append("Z")
+    return "".join(out)
+
+
+def _smooth_curves(paths: list[etree._Element], supersample: int = 1) -> int:
+    """Take the waviness out of every path that will take it.
+
+    Both measurements are in source pixels, so they scale with whatever
+    resolution the bitmap was traced at.
+    """
+    tolerance = _SIMPLIFY_TOLERANCE * supersample
+    span = _CORNER_SPAN * supersample
+    smoothed = 0
+    for path in paths:
+        data = path.get("d")
+        if not data:
+            continue
+        rewritten = _smooth_path_data(data, tolerance, span)
+        if rewritten:
+            path.set("d", rewritten)
+            smoothed += 1
+    return smoothed
+
+
+# --- gradient fills ----------------------------------------------------------
+#
+# The tracer only ever emits flat fills, so shaded artwork has nowhere to go:
+# banding it into narrow strips reads as stripes, and collapsing it to one
+# colour throws the shading away. Neither is what the artwork says.
+#
+# But the shading in this kind of artwork is almost always a straight ramp --
+# fitting one to a shaded sticker's lettering left a residual of 0.29 out of
+# 255 -- and SVG has had a construct for exactly that since the beginning. So
+# each flat fill is checked against the pixels it came from, and where those
+# pixels lie on a ramp the fill is replaced by a linearGradient along it.
+
+# How far the pixels may sit from the fitted ramp, per channel, before the
+# region is called flat-and-noisy rather than shaded.
+_GRADIENT_MAX_RESIDUAL = 8.0
+
+# How much the colour has to travel from one end of the region to the other to
+# be worth a gradient at all. Below this it is a flat fill with a slight cast.
+_GRADIENT_MIN_TRAVEL = 24.0
+
+# Sampled pixels needed before a fit is trusted.
+_GRADIENT_MIN_SAMPLES = 200
+
+# Every Nth pixel is sampled. The fit is over thousands of them either way.
+_GRADIENT_SAMPLE_STEP = 3
+
+
+def _fit_ramp(samples: list[tuple[int, int, tuple[int, int, int]]]):
+    """Least-squares fit of colour against position. None if it is not a ramp.
+
+    Returns the colour at each end of the region along the direction the
+    colour actually travels, plus those two points.
+    """
+    count = len(samples)
+    if count < _GRADIENT_MIN_SAMPLES:
+        return None
+    mean_x = sum(s[0] for s in samples) / count
+    mean_y = sum(s[1] for s in samples) / count
+    sxx = sum((s[0] - mean_x) ** 2 for s in samples)
+    syy = sum((s[1] - mean_y) ** 2 for s in samples)
+    sxy = sum((s[0] - mean_x) * (s[1] - mean_y) for s in samples)
+    det = sxx * syy - sxy * sxy
+    if not det:
+        return None
+
+    middle = []
+    slopes = []
+    residuals = []
+    for channel in range(3):
+        mean_c = sum(s[2][channel] for s in samples) / count
+        sxc = sum((s[0] - mean_x) * (s[2][channel] - mean_c) for s in samples)
+        syc = sum((s[1] - mean_y) * (s[2][channel] - mean_c) for s in samples)
+        gx = (syy * sxc - sxy * syc) / det
+        gy = (sxx * syc - sxy * sxc) / det
+        error = sum(
+            (s[2][channel] - (mean_c + gx * (s[0] - mean_x) + gy * (s[1] - mean_y))) ** 2
+            for s in samples
+        )
+        middle.append(mean_c)
+        slopes.append((gx, gy))
+        residuals.append((error / count) ** 0.5)
+
+    if max(residuals) > _GRADIENT_MAX_RESIDUAL:
+        return None
+
+    # The direction the colour travels is the average of the three channel
+    # gradients, weighted by how fast each one moves.
+    dx = sum(g[0] for g in slopes)
+    dy = sum(g[1] for g in slopes)
+    length = math.hypot(dx, dy)
+    if not length:
+        return None
+    dx, dy = dx / length, dy / length
+
+    # How far along that direction the region actually reaches.
+    reach = [(s[0] - mean_x) * dx + (s[1] - mean_y) * dy for s in samples]
+    low, high = min(reach), max(reach)
+    if high <= low:
+        return None
+
+    def colour_at(distance: float) -> tuple[int, int, int]:
+        return tuple(  # type: ignore[return-value]
+            max(0, min(255, round(middle[c] + (slopes[c][0] * dx + slopes[c][1] * dy) * distance)))
+            for c in range(3)
+        )
+
+    start, end = colour_at(low), colour_at(high)
+    travel = sum((a - b) ** 2 for a, b in zip(start, end)) ** 0.5
+    if travel < _GRADIENT_MIN_TRAVEL:
+        return None
+    return (
+        start,
+        end,
+        (mean_x + dx * low, mean_y + dy * low),
+        (mean_x + dx * high, mean_y + dy * high),
+    )
+
+
+def _shaded_fills(
+    source: Image.Image, fills: list[str], step: int = _GRADIENT_SAMPLE_STEP
+) -> dict[str, tuple]:
+    """Which of *fills* cover a ramp in *source*, and the ramp that fits."""
+    targets = [(fill, _rgb(fill)) for fill in fills]
+    targets = [(fill, rgb) for fill, rgb in targets if rgb is not None]
+    if len(targets) < 2:
+        return {}
+
+    grouped: dict[str, list[tuple[int, int, tuple[int, int, int]]]] = {
+        fill: [] for fill, _ in targets
+    }
+    pixels = source.load()
+    width, height = source.size
+    for y in range(0, height, step):
+        for x in range(0, width, step):
+            colour = pixels[x, y][:3]
+            nearest = min(
+                targets, key=lambda t: sum((a - b) ** 2 for a, b in zip(t[1], colour))
+            )
+            grouped[nearest[0]].append((x, y, colour))
+
+    ramps = {}
+    for fill, samples in grouped.items():
+        fitted = _fit_ramp(samples)
+        if fitted is not None:
+            ramps[fill] = fitted
+    return ramps
+
+
+def _apply_gradients(
+    root: etree._Element, paths: list[etree._Element], source: Image.Image
+) -> int:
+    """Replace every flat fill that covers a ramp with a linearGradient."""
+    fills = sorted({p.get("fill") for p in paths if p.get("fill") not in (None, "none")})
+    ramps = _shaded_fills(source, fills)  # type: ignore[arg-type]
+    if not ramps:
+        return 0
+
+    defs = etree.Element(_q("defs"))
+    for index, (fill, (start, end, first, last)) in enumerate(sorted(ramps.items())):
+        gradient = etree.SubElement(defs, _q("linearGradient"))
+        gradient.set("id", f"shade{index}")
+        gradient.set("gradientUnits", "userSpaceOnUse")
+        gradient.set("x1", _fmt(first[0]))
+        gradient.set("y1", _fmt(first[1]))
+        gradient.set("x2", _fmt(last[0]))
+        gradient.set("y2", _fmt(last[1]))
+        for offset, colour in ((0.0, start), (1.0, end)):
+            stop = etree.SubElement(gradient, _q("stop"))
+            stop.set("offset", _fmt(offset))
+            stop.set("stop-color", "#%02x%02x%02x" % colour)
+        for path in paths:
+            if path.get("fill") == fill:
+                path.set("fill", f"url(#shade{index})")
+                if path.get("stroke") == fill:
+                    path.set("stroke", "#%02x%02x%02x" % start)
+    root.insert(0, defs)
+    return len(ramps)
+
+
 def _group_by_color(root: etree._Element, paths: list[etree._Element]) -> None:
     """Collect same-coloured shapes into one <g>, the way designers expect."""
     buckets: OrderedDict[str, list[etree._Element]] = OrderedDict()
@@ -511,6 +947,7 @@ def build(
     for_print: bool = False,
     palette: list[str] | None = None,
     supersample: int = 1,
+    shading: "Image.Image | None" = None,
 ) -> tuple[bytes, dict[str, float | int]]:
     """Post-process raw tracer SVG into the final document.
 
@@ -542,6 +979,13 @@ def build(
     if effective_palette:
         _snap_to_palette(paths, effective_palette)
     merged = _merge_similar_colors(paths, params.processing_color_merge)
+    _smooth_curves(paths, supersample)
+    # Flat fills that cover a ramp become gradients. Only worth asking when
+    # the colours were left as the artwork had them: a palette means the
+    # caller or the detector already decided the artwork is flat.
+    shaded = 0
+    if shading is not None and not effective_palette:
+        shaded = _apply_gradients(root, paths, shading)
     _apply_draw_style(paths, params)
     _apply_gap_filler(paths, params)
     _add_background(root, params, source_w, source_h)
@@ -573,6 +1017,7 @@ def build(
         "paths": len(_paths(root)),
         "shapes": traced_shapes,
         "combined": combined,
+        "gradients": shaded,
         "source_width": source_w,
         "source_height": source_h,
         "output_width": target_w,
