@@ -1,0 +1,20 @@
+# --- Web framework -----------------------------------------------------------
+fastapi>=0.115
+uvicorn[standard]>=0.32
+python-multipart>=0.0.12
+pydantic>=2.9
+pydantic-settings>=2.6
+httpx>=0.27
+
+# --- Vectorization engine ----------------------------------------------------
+# VTracer: Rust colour-clustering + curve-fitting tracer (ships native wheels)
+vtracer>=0.6.11
+
+# --- Raster handling ---------------------------------------------------------
+pillow>=11.0
+
+# --- Vector output (SVG -> PDF / EPS / PNG) ----------------------------------
+svglib>=1.5.1
+reportlab>=4.2
+lxml>=5.0
+rlPyCairo>=0.3.0
