@@ -504,6 +504,7 @@ def build(
     source_h: int,
     *,
     for_print: bool = False,
+    palette: list[str] | None = None,
 ) -> tuple[bytes, dict[str, float | int]]:
     """Post-process raw tracer SVG into the final document.
 
@@ -528,9 +529,12 @@ def build(
         )
 
     # A pinned palette is a promise; honour it before anything else looks at
-    # the colours.
-    if params.processing_palette:
-        _snap_to_palette(paths, params.processing_palette)
+    # the colours. A palette derived from the artwork gets the same treatment:
+    # the pixels were mapped onto it, so the fills have to be too, or the
+    # tracer's cluster averages reintroduce the very bands it removed.
+    effective_palette = params.processing_palette or palette
+    if effective_palette:
+        _snap_to_palette(paths, effective_palette)
     merged = _merge_similar_colors(paths, params.processing_color_merge)
     _apply_draw_style(paths, params)
     _apply_gap_filler(paths, params)

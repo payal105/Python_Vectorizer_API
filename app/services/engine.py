@@ -109,7 +109,7 @@ class TraceResult:
     engine: str = ENGINE_NAME
 
 
-def _tracer_kwargs(params: VectorizeParams) -> dict[str, object]:
+def _tracer_kwargs(params: VectorizeParams, colours_are_pinned: bool) -> dict[str, object]:
     """Translate request parameters into VTracer's argument names."""
     explicit = params.model_fields_set
 
@@ -139,13 +139,11 @@ def _tracer_kwargs(params: VectorizeParams) -> dict[str, object]:
     color_precision = params.processing_color_precision
     layer_difference = params.processing_layer_difference
 
-    # When the caller pinned the colours (a fixed palette, or a small colour
-    # budget) the bitmap is already exactly the colours they asked for.
-    # Letting the tracer cluster again would merge neighbouring palette
-    # entries, so keep full precision unless they overrode it themselves.
-    colours_are_pinned = params.processing_palette is not None or (
-        0 < params.processing_max_colors <= 32
-    )
+    # When preprocessing settled the colours -- a pinned palette, a colour
+    # budget, or a palette detected from flat artwork -- the bitmap is already
+    # exactly those colours. Letting the tracer cluster again would merge
+    # neighbouring entries, so keep full precision unless the caller overrode
+    # it themselves.
     if colours_are_pinned:
         if "processing_color_precision" not in explicit:
             color_precision = 8
@@ -174,7 +172,7 @@ def trace(prepared: PreparedImage, params: VectorizeParams) -> TraceResult:
     is safe (and worthwhile) to call from a worker thread.
     """
     png = to_png_bytes(prepared.image)
-    kwargs = _tracer_kwargs(params)
+    kwargs = _tracer_kwargs(params, colours_are_pinned=prepared.palette is not None)
     logger.debug("tracing %sx%s with %s", prepared.traced_width, prepared.traced_height, kwargs)
 
     try:

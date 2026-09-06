@@ -62,6 +62,7 @@ def _run_sync(
         prepared.traced_width,
         prepared.traced_height,
         for_print=params.output_file_format in ("pdf", "eps"),
+        palette=prepared.palette,
     )
     t_built = time.perf_counter()
 

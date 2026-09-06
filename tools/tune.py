@@ -156,7 +156,11 @@ def run(data: bytes, overrides: dict[str, str], settings: Settings):
     prepared = preprocess.prepare(data, params, settings.max_input_pixels)
     traced = engine.trace(prepared, params)
     svg, meta = svgdoc.build(
-        traced.svg, params, prepared.traced_width, prepared.traced_height
+        traced.svg,
+        params,
+        prepared.traced_width,
+        prepared.traced_height,
+        palette=prepared.palette,
     )
     return params, prepared, svg, meta
 

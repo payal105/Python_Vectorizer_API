@@ -395,7 +395,8 @@ def test_smoothing_rounds_more_corners_as_it_rises(client, sample_png):
 
     thresholds = [
         _tracer_kwargs(
-            VectorizeParams.model_validate({"processing.smoothing": level})
+            VectorizeParams.model_validate({"processing.smoothing": level}),
+            colours_are_pinned=False,
         )["corner_threshold"]
         for level in ("none", "low", "medium", "high")
     ]
@@ -412,7 +413,8 @@ def test_smoothing_never_touches_detail_removing_knobs(client):
     speckles, layer_diffs = set(), set()
     for level in ("none", "low", "medium", "high"):
         kwargs = _tracer_kwargs(
-            VectorizeParams.model_validate({"processing.smoothing": level})
+            VectorizeParams.model_validate({"processing.smoothing": level}),
+            colours_are_pinned=False,
         )
         speckles.add(kwargs["filter_speckle"])
         layer_diffs.add(kwargs["layer_difference"])
@@ -427,7 +429,8 @@ def test_explicit_parameter_overrides_the_smoothing_preset(client):
     kwargs = _tracer_kwargs(
         VectorizeParams.model_validate(
             {"processing.smoothing": "high", "processing.corner_threshold": "20"}
-        )
+        ),
+        colours_are_pinned=False,
     )
     assert kwargs["corner_threshold"] == 20
 
@@ -554,7 +557,8 @@ def test_detail_presets_trade_speckle_for_precision():
     speckles, precisions = [], []
     for level in ("low", "standard", "high", "maximum"):
         kwargs = _tracer_kwargs(
-            VectorizeParams.model_validate({"processing.detail": level})
+            VectorizeParams.model_validate({"processing.detail": level}),
+            colours_are_pinned=False,
         )
         speckles.append(kwargs["filter_speckle"])
         precisions.append(kwargs["path_precision"])
@@ -580,7 +584,8 @@ def test_explicit_min_area_overrides_the_detail_preset():
     kwargs = _tracer_kwargs(
         VectorizeParams.model_validate(
             {"processing.detail": "maximum", "processing.shapes.min_area_px": "6"}
-        )
+        ),
+        colours_are_pinned=False,
     )
     assert kwargs["filter_speckle"] == 6
 
@@ -876,10 +881,9 @@ def test_snap_to_palette_leaves_exact_matches_alone():
 
 def test_pinned_palette_disables_denoising_by_default():
     """Median denoising and a pinned palette fight each other: the filter
-    softens a boundary into intermediate tones, and nearest-colour mapping
-    hands those to whatever palette entry sits nearest in RGB. On real
-    artwork the charcoal/cream midpoint landed on a sage green, fringing
-    every letter. 7.8k stray sage pixels without denoising, 31k with it."""
+    widens a boundary into a ramp of intermediate tones, and a wider ramp
+    eats thin features from both sides. On the test artwork denoising cost
+    3.7k pixels of the white outline around the lettering."""
     from app.schemas.params import VectorizeParams
 
     pinned = VectorizeParams.model_validate({"processing.palette": "#ffffff,#000000"})
@@ -917,3 +921,296 @@ def test_pinned_palette_does_not_bleed_a_colour_across_the_image(client):
     sage_paths = re.findall(rb'fill="#c7cda0"', response.content)
     # One sage mark in the artwork; a fringe would produce many more.
     assert len(sage_paths) <= 3, len(sage_paths)
+
+
+def test_edge_blend_resolves_to_one_of_the_two_colours_it_lies_between():
+    """Nearest-colour mapping is wrong along an anti-aliased edge.
+
+    A pixel halfway between the charcoal stroke and the cream fill is
+    (148, 146, 130), and its nearest palette entry is the *grey background* --
+    a colour that touches that edge nowhere in the artwork. Quantizing
+    against blend ramps instead asks which two palette colours explain the
+    pixel, so it resolves to charcoal or cream and never to grey.
+    """
+    from app.services.preprocess import _quantize
+
+    palette = ["#666666", "#fbf7da", "#2d2c2a"]
+    grey, cream, charcoal = (102, 102, 102), (251, 247, 218), (45, 44, 42)
+    midpoint = tuple(round((a + b) / 2) for a, b in zip(charcoal, cream))
+
+    # The trap: plain nearest really does prefer grey here.
+    def nearest(colour):
+        return min(
+            (grey, cream, charcoal),
+            key=lambda t: sum((a - b) ** 2 for a, b in zip(t, colour)),
+        )
+
+    assert nearest(midpoint) == grey
+
+    edge = Image.new("RGB", (32, 32), midpoint)
+    quantized, used = _quantize(edge, 0, palette)
+    assert used == palette
+    assert quantized.convert("RGB").getpixel((16, 16)) in (charcoal, cream)
+
+
+def test_thin_white_outline_is_not_overlaid_with_grey(client):
+    """The reported defect: a grey ribbon laid over the white outline.
+
+    Charcoal-stroked lettering on a grey background carries a thin white
+    outline between the two. Under nearest-colour mapping the anti-aliased
+    ramp either side of that outline lands on grey, so the outline was eaten
+    from both edges and the grey traced as its own shapes lying against it --
+    in an editor, grey jagged lines running through the white layer. No grey
+    belongs anywhere inside the outline.
+    """
+    from PIL import ImageDraw
+
+    from app.schemas.params import VectorizeParams
+    from app.services.preprocess import prepare
+
+    image = Image.new("RGB", (400, 300), "#666666")
+    draw = ImageDraw.Draw(image)
+    for cx in (130, 270):  # two overlapping "letters", all curved edges
+        draw.ellipse([cx - 90, 40, cx + 90, 260], fill="#ffffff")
+        draw.ellipse([cx - 86, 44, cx + 86, 256], fill="#2d2c2a")
+        draw.ellipse([cx - 78, 52, cx + 78, 248], fill="#fbf7da")
+    buffer = io.BytesIO()
+    image.save(buffer, format="JPEG", quality=70)
+
+    params = VectorizeParams.model_validate(
+        {"processing.palette": "#666666,#fbf7da,#2d2c2a,#ffffff"}
+    )
+    prepared = prepare(buffer.getvalue(), params, 4_000_000)
+    pixels = prepared.image.convert("RGB")
+
+    inside = Image.new("L", (400, 300), 0)
+    stencil = ImageDraw.Draw(inside)
+    for cx in (130, 270):
+        stencil.ellipse([cx - 90, 40, cx + 90, 260], fill=255)
+
+    grey = sum(
+        1
+        for colour, covered in zip(
+            pixels.get_flattened_data(), inside.get_flattened_data()
+        )
+        if covered and colour == (102, 102, 102)
+    )
+    # Nearest-colour mapping left 160 grey pixels here; blend ramps leave none.
+    assert grey <= 5, grey
+
+
+def test_blend_ramp_stays_within_the_palette_ceiling():
+    """The probe palette has the same 256-entry limit as any other, so a big
+    palette gives up its ramps rather than overflowing."""
+    from app.services.preprocess import _blend_ramp
+
+    for size in (1, 2, 6, 20, 64, 256):
+        colors = [(i, i, i) for i in range(size)]
+        probe, resolves_to = _blend_ramp(colors)
+        assert len(resolves_to) == 256
+        assert max(resolves_to) < size
+        assert len(probe.getpalette() or []) == 768
+        # Every palette colour keeps its own index.
+        assert list(resolves_to[:size]) == list(range(size))
+
+
+def test_derived_palette_finds_the_real_inks_not_the_transition_tones():
+    """Quantizing straight to N ranks buckets by pixel count, so a dominant
+    background swallows the budget: on the test artwork max_colors=6 returned
+    five muddy greys, losing the white outline and the pink accent. Deriving
+    the palette generously first and keeping the most-used entries that are
+    far enough apart recovers the artwork's own colours instead."""
+    from PIL import ImageDraw
+
+    from app.services.preprocess import _derive_palette
+
+    # A grey field, a charcoal blob with a *thin* white outline, and a small
+    # pink accent. The outline and the accent are both low-area, and both are
+    # what a population-ranked quantizer drops first.
+    image = Image.new("RGB", (400, 300), "#666666")
+    draw = ImageDraw.Draw(image)
+    draw.ellipse([60, 40, 340, 260], fill="#ffffff")
+    draw.ellipse([66, 46, 334, 254], fill="#2d2c2a")
+    draw.ellipse([150, 110, 250, 190], fill="#f09ec2")
+    buffer = io.BytesIO()
+    image.save(buffer, format="JPEG", quality=80)
+    source = Image.open(io.BytesIO(buffer.getvalue())).convert("RGB")
+
+    derived = _derive_palette(source, 4)
+
+    def has(target, tolerance=25):
+        return any(
+            sum((a - b) ** 2 for a, b in zip(entry, target)) ** 0.5 <= tolerance
+            for entry in derived
+        )
+
+    assert len(derived) == 4, derived
+    assert has((102, 102, 102)), derived  # background
+    assert has((45, 44, 42)), derived  # charcoal
+    assert has((255, 255, 255)), derived  # the thin outline
+    assert has((240, 158, 194)), derived  # the small accent
+
+
+def test_colour_budget_gives_flat_artwork_the_palette_it_deserves(client):
+    """End to end: asking for a colour budget should leave one fill per ink,
+    not a fill per ink *plus* a fill for every band between them."""
+    from PIL import ImageDraw
+
+    image = Image.new("RGB", (400, 300), "#666666")
+    draw = ImageDraw.Draw(image)
+    draw.ellipse([60, 40, 340, 260], fill="#ffffff")
+    draw.ellipse([66, 46, 334, 254], fill="#2d2c2a")
+    draw.ellipse([150, 110, 250, 190], fill="#f09ec2")
+    buffer = io.BytesIO()
+    image.save(buffer, format="JPEG", quality=80)
+
+    response = post(client, buffer.getvalue(), name="a.jpg",
+                    **{"processing.max_colors": "4"})
+    assert response.status_code == 200
+    fills = {f.decode() for f in re.findall(rb'fill="(#[0-9a-fA-F]{6})"', response.content)}
+    assert len(fills) <= 4, fills
+
+    def rgb(value):
+        return tuple(int(value[i : i + 2], 16) for i in (1, 3, 5))
+
+    def has(target, tolerance=25):
+        return any(
+            sum((a - b) ** 2 for a, b in zip(rgb(f), target)) ** 0.5 <= tolerance
+            for f in fills
+        )
+
+    # Both low-area inks have to survive as themselves. The old behaviour
+    # spent the budget on greys and returned neither.
+    assert has((255, 255, 255)), fills  # the thin white outline
+    assert has((240, 158, 194)), fills  # the small pink accent
+
+
+def _shaded_sphere(size: int = 300) -> Image.Image:
+    """Continuous tone: every pixel a slightly different shade."""
+    import math
+
+    image = Image.new("RGB", (size, size), "#20304a")
+    pixels = image.load()
+    for y in range(size):
+        for x in range(size):
+            dx, dy = (x - size / 2) / (size / 2), (y - size / 2) / (size / 2)
+            radius = dx * dx + dy * dy
+            if radius <= 1:
+                z = math.sqrt(1 - radius)
+                light = max(0.0, 0.5 * dx - 0.6 * dy + 0.7 * z)
+                pixels[x, y] = (
+                    int(30 + 200 * light),
+                    int(60 + 170 * light),
+                    int(90 + 140 * light),
+                )
+    return image
+
+
+def test_flat_artwork_gets_its_own_inks_with_no_settings_at_all():
+    """The default has to be good on flat artwork, because that is what most
+    callers send. Traced as-is, every anti-aliasing band becomes its own
+    shape: the outline reads grey instead of white and the curves come out
+    faceted. Detecting the artwork's inks removes the bands at the source."""
+    from PIL import ImageDraw
+
+    from app.schemas.params import VectorizeParams
+    from app.services.preprocess import prepare
+
+    image = Image.new("RGB", (400, 300), "#666666")
+    draw = ImageDraw.Draw(image)
+    draw.ellipse([60, 40, 340, 260], fill="#ffffff")
+    draw.ellipse([66, 46, 334, 254], fill="#2d2c2a")
+    draw.ellipse([150, 110, 250, 190], fill="#f09ec2")
+    buffer = io.BytesIO()
+    image.save(buffer, format="JPEG", quality=80)
+
+    params = VectorizeParams()
+    assert params.auto_palette
+    prepared = prepare(buffer.getvalue(), params, 4_000_000)
+
+    assert prepared.palette is not None
+    assert len(prepared.palette) <= 6, prepared.palette
+
+    def has(target, tolerance=25):
+        return any(
+            sum((a - int(c[i : i + 2], 16)) ** 2 for a, i in zip(target, (1, 3, 5)))
+            ** 0.5
+            <= tolerance
+            for c in prepared.palette
+        )
+
+    assert has((102, 102, 102)) and has((45, 44, 42))
+    assert has((255, 255, 255)), prepared.palette  # the thin outline
+    assert has((240, 158, 194)), prepared.palette  # the small accent
+
+
+def test_continuous_tone_artwork_is_left_alone():
+    """Flattening a photograph or a shaded illustration to a dozen colours
+    would be vandalism, so detection has to decline it.
+
+    Counting inks cannot tell a short palette from a few bands cut through a
+    gradient — both come back as a short list. What separates them is how far
+    the pixels sit from the inks they would be mapped onto: near zero for flat
+    artwork, because only the edge tones are far away, and several units for
+    shading, which spreads pixels evenly between the bands.
+    """
+    from app.schemas.params import VectorizeParams
+    from app.services.preprocess import _detect_flat_palette
+
+    assert _detect_flat_palette(_shaded_sphere()) is None
+
+    gradient = Image.new("RGB", (300, 300))
+    pixels = gradient.load()
+    for y in range(300):
+        for x in range(300):
+            pixels[x, y] = (x * 255 // 300, y * 255 // 300, (x + y) * 255 // 600)
+    assert _detect_flat_palette(gradient) is None
+
+    assert VectorizeParams().auto_palette
+
+
+@pytest.mark.parametrize(
+    "override",
+    [
+        {"processing.detail": "maximum"},
+        {"processing.max_colors": "8"},
+        {"processing.color_precision": "8"},
+        {"processing.layer_difference": "48"},
+        {"processing.palette": "#ffffff,#000000"},
+    ],
+)
+def test_driving_the_colour_pipeline_turns_the_automatic_palette_off(override):
+    """An explicit choice outranks the default. detail=maximum in particular
+    promises to keep hairline features and every scrap of compression noise —
+    flattening the colours first would quietly break that promise.
+
+    processing.denoise is deliberately *not* in this set: it runs before
+    quantization and composes with it rather than contradicting it, and making
+    a sweep across denoise levels silently toggle a second behaviour made that
+    parameter's effect impossible to reason about."""
+    from app.schemas.params import VectorizeParams
+
+    assert VectorizeParams.model_validate(override).auto_palette is False
+
+
+@pytest.mark.parametrize(
+    "override",
+    [
+        {},
+        {"processing.detail": "standard"},
+        {"processing.denoise": "low"},
+        {"processing.max_colors": "0"},
+        {"processing.color_precision": "6"},
+        {"processing.smoothing": "high"},
+        {"output.file_format": "pdf"},
+    ],
+)
+def test_posting_the_defaults_back_is_not_a_choice(override):
+    """Clients post every field they know about, filled in with the values the
+    schema showed them — Swagger's "Try it out" form does exactly that. Reading
+    `processing.detail=standard` as an instruction switched the automatic
+    palette off for those callers while looking like it had done nothing, so
+    what counts is the value, not the mention."""
+    from app.schemas.params import VectorizeParams
+
+    assert VectorizeParams.model_validate(override).auto_palette is True

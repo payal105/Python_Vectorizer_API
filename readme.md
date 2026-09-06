@@ -144,7 +144,7 @@ with types, ranges and defaults, generated from the schema.
 | Parameter | Type | Default | Notes |
 | --- | --- | --- | --- |
 | `processing.color_mode` | `color`, `binary` | `color` | `binary` traces a single-colour silhouette. |
-| `processing.max_colors` | 0–256 | `0` (auto) | Quantize the input palette. The single most useful quality knob. |
+| `processing.max_colors` | 0–256 | `0` (auto) | Reduce to N colours, derived from the artwork's own inks. At `0`, flat artwork gets this automatically — see [Ghost layers](#ghost-layers-in-an-editor). |
 | `processing.palette` | hex list | – | Pin output colours exactly, e.g. `#ff0000,#00ff00`. Output fills are snapped to this list, so you get exactly this many layers. The strongest fix for ghost layers — see [Ghost layers](#ghost-layers-in-an-editor). |
 | `processing.color_merge` | 0–160 | `16` | Snap minor fills onto the nearest prominent one within this RGB distance. Removes the pale lumps left where anti-aliasing blends two flat regions. See [Transition lumps](#transition-lumps-between-two-colours). |
 | `processing.detail` | `low`, `standard`, `high`, `maximum` | `standard` | Smallest feature kept, and path coordinate precision. See [Detail](#detail-thin-lines-and-small-features). |
@@ -398,14 +398,60 @@ colours than to the one they belong to — in that file `#b7b7b6` was nearest
 to the sage green. Raising the threshold far enough to catch the ghosts also
 collapses colours you wanted to keep.
 
-**Pinning the palette does fix it.** Every pixel snaps to a colour you chose,
-so the ghost shades never exist:
+**Flat artwork gets this automatically.** With no colour settings at all,
+preprocessing checks whether the image resolves to a handful of real inks. If
+it does, it uses them; if it does not — a photograph, a gradient — it leaves
+the image alone.
+
+Telling an ink from the transition tone beside it is the whole difficulty, and
+pixel counts cannot do it: on the test file the band along the letter edges
+covered *more* of the image (0.50%) than the sage green of the flower leaves
+(0.27%). What separates them is shape. A transition tone is a thread one or
+two pixels wide and is always a minority in its own neighbourhood; an ink
+fills regions. Weighing each candidate by what survives a mode filter puts the
+six real inks between 80.7% and 0.27%, and every transition tone below 0.03%.
+
+Counting inks is not enough on its own, because a few bands cut through a
+gradient also come back as a short list. The second test is how far the
+pixels sit from the inks they would be mapped onto — near zero on flat
+artwork, since only the edge tones are far away, and several units once there
+is shading. Measured: **0.00** for a PNG logo, **0.81** for a lettering JPEG,
+**8.54** for a shaded sticker, **10.41** for a shaded sphere.
+
+An explicit choice always outranks this: asking `processing.max_colors`,
+`processing.palette`, `processing.detail`, `processing.color_precision` or
+`processing.layer_difference` for anything other than its default turns it
+off, so `detail=maximum` still keeps every hairline feature and every scrap of
+compression noise the way it promises to. What counts is the value, not the
+mention — plenty of clients post every field they know about filled in with
+the defaults, and reading `processing.detail=standard` as an instruction would
+switch this off for them while looking like it had done nothing.
+
+`processing.denoise` is deliberately not on that list: it runs before
+quantization and composes with it, so a sweep across denoise levels does not
+silently toggle a second behaviour.
+
+**A colour budget does the same thing on demand.** `processing.max_colors`
+derives that many inks and maps both the pixels and the traced fills onto
+them. On the test file:
+
+```
+processing.max_colors=6
+```
+
+took 18 fills and 135 objects down to **6 fills and 36 objects**, recovering
+grey, cream, charcoal, pink, sage and the white outline. Ask for roughly the
+number of inks the artwork actually has: a budget larger than that spends the
+spare slots on the transition tones you were trying to remove.
+
+**Pinning the palette is the strongest form of it.** Every pixel snaps to a
+colour you chose, so there is no derivation to second-guess:
 
 ```
 processing.palette=#666666,#fbf7da,#2d2c2a,#f09ec2,#c7cda0,#ffffff
 ```
 
-On that file: 18 fills and 135 objects became **6 fills and 75 objects**, with
+On that file: 18 fills and 135 objects became **6 fills and 26 objects**, with
 the artwork visually unchanged — better preserved than the alternatives,
 which shifted the whites toward cream.
 
@@ -413,6 +459,31 @@ Note this needs the output fills to be snapped as well as the input pixels.
 The tracer averages the pixels inside each cluster, so boundary clusters come
 back as blends: pinning six colours produced eighteen until the result was
 snapped back to the palette too.
+
+#### Edge pixels resolve to the two colours they lie between
+
+A pinned palette does *not* map each pixel to the nearest palette colour.
+Nearest is wrong along an anti-aliased edge, and wrong in a way you can see:
+halfway between the charcoal stroke and the cream fill is `(148, 146, 130)`,
+whose nearest entry in the palette above is the **grey background** — a colour
+that touches that edge nowhere in the artwork.
+
+On this file that mapped a one-to-two pixel grey ribbon along every letter,
+and the tracer turned the ribbon into grey shapes lying against the white
+outline. Separate the layers in an editor and the white one had grey jagged
+lines running through it; the outline was no longer a clean white edge.
+
+So the input is quantized against the palette *plus* samples taken along the
+segment between every pair of its colours, and each sample resolves to the
+colour it sits nearer to. An edge pixel then lands on one of the two colours
+that actually meet there, never on a third that merely sits nearby in RGB.
+On the test file that took the artwork from 279 traced shapes to 156, with
+the white outline continuous all the way round.
+
+The probe palette has the same 256-entry ceiling as any other, so beyond
+about 22 pinned colours there is no room for the ramps and mapping falls back
+to plain nearest. Palettes that large are unusual — the feature is for
+pinning a handful of ink colours.
 
 To find a palette for your own artwork:
 

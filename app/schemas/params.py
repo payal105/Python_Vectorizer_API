@@ -122,7 +122,13 @@ class VectorizeParams(BaseModel):
         alias="processing.max_colors",
         ge=0,
         le=256,
-        description="Quantize the input to at most N colours. 0 = automatic.",
+        description=(
+            "Reduce the artwork to at most N colours. The palette is derived "
+            "from the image's own inks, and both pixels and traced fills are "
+            "mapped onto it. Leave it at 0 and flat artwork gets this "
+            "automatically, with the number of inks worked out for it; "
+            "continuous-tone images are left alone."
+        ),
     )
     processing_palette: list[str] | None = Field(
         default=None,
@@ -377,6 +383,44 @@ class VectorizeParams(BaseModel):
             cleaned[key] = value
         return cleaned
 
+    # Asking any of these for something other than its default means the
+    # caller is driving the colour pipeline themselves, and the automatic
+    # palette stands down. detail and denoise are included because both make
+    # promises about what survives tracing -- detail=maximum exists to keep
+    # hairline features and every scrap of compression noise -- and flattening
+    # the colours first would quietly break them.
+    _COLOUR_PIPELINE_FIELDS = frozenset(
+        {
+            "processing_max_colors",
+            "processing_detail",
+            "processing_color_precision",
+            "processing_layer_difference",
+        }
+    )
+
+    @property
+    def auto_palette(self) -> bool:
+        """Whether preprocessing may derive a palette from the artwork itself.
+
+        Flat artwork traced as-is picks up a shape for every anti-aliasing
+        band, which is what makes outlines look grey and edges look faceted.
+        Deriving the artwork's own inks fixes that without the caller naming
+        anything -- but only as a default, never over an explicit choice.
+
+        What counts as a choice is the *value*, not the mention. Plenty of
+        clients post every field they know about, filled in with the defaults
+        -- Swagger's "Try it out" form does exactly that -- and treating
+        ``processing.detail=standard`` as an instruction would have switched
+        this off for them while looking like it had done nothing at all.
+        """
+        if self.processing_palette:
+            return False
+        fields = type(self).model_fields
+        return all(
+            getattr(self, name) == fields[name].default
+            for name in self._COLOUR_PIPELINE_FIELDS
+        )
+
     @model_validator(mode="after")
     def _check_combinations(self) -> VectorizeParams:
         if self.processing_palette is not None:
@@ -411,14 +455,15 @@ class VectorizeParams(BaseModel):
 
         if self.processing_palette and "processing_denoise" not in self.model_fields_set:
             # Median denoising and a pinned palette fight each other. The
-            # filter softens the boundary between two colours into a ramp of
-            # intermediate tones, and nearest-colour mapping then hands those
-            # to whichever palette entry happens to sit nearest in RGB -- on
-            # real artwork the midpoint of a charcoal and a cream landed on a
-            # sage green, painting a green fringe along every letter. Measured
-            # on that file: 7.8k stray sage pixels without denoising, 31k with
-            # it. Quantizing to a fixed palette already removes noise, so the
-            # filter has nothing to add here.
+            # filter widens the boundary between two colours into a ramp of
+            # intermediate tones, and every tone in that ramp is a pixel the
+            # quantizer has to guess at. Preprocessing resolves those blends
+            # onto the two colours they lie between, so the guess is a good
+            # one -- but a wider ramp still eats thin features from both
+            # sides. On the test artwork denoising cost 3.7k pixels of the
+            # white outline around the lettering. Quantizing to a fixed
+            # palette already removes noise, so the filter has nothing to add
+            # here.
             self.processing_denoise = "none"
 
         if self.output_combine_paths != "none":
