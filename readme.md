@@ -632,6 +632,42 @@ has two more of its own kind beside it, so only six agree, and the line
 survives. A plain mode filter took 6,154 pixels off that charcoal outline;
 this takes 557.
 
+That test is also its limit. Requiring seven of nine to agree means the pass
+can only reach a speck sitting in a plain field, because where two inks meet
+they never do agree — so the specks that survive it are exactly the ones on a
+boundary. Those are the expensive ones. A charcoal pixel that JPEG ringing
+threw out into the grey beside a white outline cannot be ignored by the
+tracer: the boundary running past it has to detour around it and back, and
+that detour is a notch in a curve that was otherwise smooth. On the reference
+artwork there were **9,969** of them in nine megapixels — a tenth of one per
+cent of the bitmap, and enough to leave a notch every 250 pixels of finished
+outline, which is what made the lettering look faceted at any real zoom.
+
+Clearing them is also the only kind of smoothing that cannot open a seam.
+Every shape is traced separately, so nudging one shape's outline moves it away
+from the shape that abutted it and lets the background show through the crack
+— which is what ruled out relaxing the traced nodes, a treatment that looked
+excellent and doubled the seams. A stray taken out of the bitmap is taken out
+for both shapes at once, and both stop detouring in the same place. It took
+the notches down by a fifth and *closed* an eighth of the seams. It costs
+about 0.75s on a 9.3M-pixel bitmap of six inks.
+
+Having no company of its own cannot be the whole test, though, because a thin
+feature is made of lonely pixels too. A one-pixel white line on a dark ground
+does not quantize to white: the ramp puts some of its pixels on white and the
+rest on the mid-grey between the two, so pixel by pixel the line is alone
+among its own kind. Judged on company alone it is a run of strays, and
+outline-only lettering duly disappeared.
+
+What tells the two apart is where the colour sits. Mixing two inks can only
+ever land *between* them in brightness, so that mid-grey — a blend of the line
+and the ground — is never the darkest or the lightest thing in its window.
+Ringing is the opposite: it overshoots past everything around it, which is why
+the charcoal speck is darker than both the grey it sits in and the white it
+rang off. So a pixel goes only when it is alone **and** an extreme, and
+anything that could be a blend of what surrounds it stays. Nothing else in the
+corpus moved by a pixel.
+
 **A colour budget does the same thing on demand.** `processing.max_colors`
 derives that many inks and maps both the pixels and the traced fills onto
 them. On the test file:

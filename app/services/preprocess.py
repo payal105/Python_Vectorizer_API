@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import io
 from dataclasses import dataclass
+from typing import NamedTuple
 
 from PIL import Image, ImageChops, ImageFilter, ImageOps, UnidentifiedImageError
 
@@ -584,6 +585,149 @@ def _drop_speckles(ids: Image.Image) -> Image.Image:
     return Image.frombytes("P", ids.size, cleaned.tobytes())
 
 
+# Counting how many of the nine pixels in a window carry one ink, as the mean
+# of a 0/255 mask: a single occurrence comes back as 28, two as 57, three as
+# 85. Ranking and tallying filters cannot answer this -- they compare *values*,
+# and what matters is how many of the neighbours match the one in the middle --
+# but a convolution can, and counts in C.
+_COMPANY = ImageFilter.Kernel((3, 3), [1] * 9, scale=9)
+
+# How many pixels of its own ink a pixel needs around it before it counts as
+# part of the artwork rather than as a stray thrown there by compression. Two
+# means "not entirely alone", which is as much as may be asked of a bitmap
+# traced at its own resolution: a one-pixel line's last pixel has a single
+# neighbour of its own kind, and detail='maximum' promises to keep it.
+_COMPANY_ALONE = 2
+
+# At twice the resolution the same question can be put more strictly, because
+# a pixel is then half a source pixel across: three of a kind is still less
+# than one source pixel's worth of ink, so nothing that was drawn can fail the
+# test, while a stray and a stray's pair both do.
+_COMPANY_SUBPIXEL = 3
+
+
+def _luminance(rgbs: list[tuple[int, int, int]]) -> list[int]:
+    """Each ink's brightness, as the label-to-grey table point() takes."""
+    table = [0] * 256
+    for ink, (red, green, blue) in enumerate(rgbs):
+        table[ink] = round(0.299 * red + 0.587 * green + 0.114 * blue)
+    return table
+
+
+class _Neighbourhood(NamedTuple):
+    """What the nine pixels of each 3x3 window say about the one in the middle."""
+
+    commonest: Image.Image  # the ink most of the nine carry
+    company: Image.Image  # how many of the nine carry the middle pixel's ink
+    darkest: Image.Image  # brightness of the darkest ink among the nine
+    lightest: Image.Image  # ...and of the lightest
+
+
+def _neighbourhoods(
+    flat: Image.Image, rgbs: list[tuple[int, int, int]]
+) -> _Neighbourhood:
+    """Answer all four questions in one pass per ink.
+
+    One convolution per ink gives that ink's count everywhere, and the rest
+    falls out of it: a running maximum over the counts leaves the commonest
+    ink behind, the count read where the ink's own mask is set is that pixel's
+    company, and the inks whose count is not zero are the ones present, which
+    is what bounds how dark and how light the window gets.
+
+    Pillow's ModeFilter would give the first of the four on its own, and on a
+    nine-megapixel label image of six inks it takes 1.3s where all four of
+    these together take 0.75s -- it sorts a window per pixel, and a handful of
+    convolutions does not.
+
+    Pillow leaves the border of a convolution unfiltered, so the outermost
+    pixels come back holding mask values rather than counts. That reads as
+    ample company and as a window of one ink, which leaves the border alone --
+    the right answer, since those pixels have no full window to be judged by.
+    """
+    brightness = _luminance(rgbs)
+    blank = Image.new("L", flat.size, 0)
+    solid = Image.new("L", flat.size, 255)
+    commonest = Image.new("L", flat.size, 0)
+    best = Image.new("L", flat.size, 0)
+    company = Image.new("L", flat.size, 0)
+    darkest = Image.new("L", flat.size, 255)
+    lightest = Image.new("L", flat.size, 0)
+    for ink, present in enumerate(flat.histogram()):
+        if not present:
+            continue
+        mask = flat.point([255 if value == ink else 0 for value in range(256)])
+        count = mask.filter(_COMPANY)
+        anywhere = count.point([255 if value else 0 for value in range(256)])
+        wins = ImageChops.subtract(count, best).point(
+            [255 if value else 0 for value in range(256)]
+        )
+        best = ImageChops.lighter(best, count)
+        commonest = Image.composite(Image.new("L", flat.size, ink), commonest, wins)
+        company = ImageChops.lighter(company, ImageChops.multiply(mask, count))
+        shade = Image.new("L", flat.size, brightness[ink])
+        darkest = ImageChops.darker(darkest, Image.composite(shade, solid, anywhere))
+        lightest = ImageChops.lighter(lightest, Image.composite(shade, blank, anywhere))
+    return _Neighbourhood(commonest, company, darkest, lightest)
+
+
+def _drop_strays(
+    ids: Image.Image, rgbs: list[tuple[int, int, int]], keep_at_least: int
+) -> Image.Image:
+    """Clear the overshoots compression leaves along a boundary.
+
+    :func:`_drop_speckles` only reaches a speck in a plain field, because it
+    asks whether seven of the nine agree and where two inks meet they never
+    do. So the strays that survive it are exactly the ones sitting on a
+    boundary -- a charcoal pixel thrown out into the grey by JPEG ringing,
+    beside the white outline it rang off -- and those are the ones that cost
+    the most. The tracer cannot pass one by: the boundary running alongside it
+    has to detour around it and back, and that detour is a notch in a curve
+    that was otherwise smooth. On the reference artwork there were 9,969 of
+    them in nine megapixels -- a tenth of one per cent of the bitmap, and
+    enough to leave a notch every 250 pixels of finished outline, which is
+    what made the lettering look faceted at any real zoom.
+
+    Clearing them is also the one kind of smoothing that cannot open a seam.
+    Every shape is traced separately, so nudging one shape's outline moves it
+    away from the shape that abutted it and lets the background show through
+    the crack; but a stray taken out of the bitmap is taken out for both shapes
+    at once, and both stop detouring in the same place. Measured on the
+    reference artwork it took the notches down by a fifth and closed an eighth
+    of the hairline seams, rather than opening any.
+
+    Having no company cannot be the whole test, because a thin feature is made
+    of lonely pixels too. A one-pixel white line on a dark ground quantizes
+    into white and mid-grey pixels alternating along it, and every one of them
+    is alone among its immediate neighbours; judged on company alone the whole
+    line reads as strays, and outline-only lettering disappeared when this was
+    first tried that way.
+
+    What tells the two apart is where the colour sits. Mixing two inks can only
+    ever land between them in brightness, so the mid-grey beside that white
+    line -- a blend of the line and the ground -- is never the darkest or the
+    lightest thing in its window. Ringing is the opposite: it overshoots past
+    everything around it, which is why the charcoal speck is darker than both
+    the grey it sits in and the white it borders. So a pixel goes only when it
+    is alone *and* an extreme, and anything that could be a blend of what
+    surrounds it stays.
+    """
+    flat = Image.frombytes("L", ids.size, ids.tobytes())
+    near = _neighbourhoods(flat, rgbs)
+    brightness = flat.point(_luminance(rgbs))
+    cutoff = int(255 * (keep_at_least - 0.5) / 9)
+    alone = near.company.point([255 if value < cutoff else 0 for value in range(256)])
+    # An extreme is a pixel that matches one end of its window's brightness
+    # range exactly, so take the smaller of the two distances rather than
+    # multiplying them: a product of two small distances rounds to zero, and
+    # would read a window of near-identical inks as an overshoot.
+    extreme = ImageChops.darker(
+        ImageChops.difference(brightness, near.darkest),
+        ImageChops.difference(brightness, near.lightest),
+    ).point([255 if value == 0 else 0 for value in range(256)])
+    cleaned = Image.composite(near.commonest, flat, ImageChops.multiply(alone, extreme))
+    return Image.frombytes("P", ids.size, cleaned.tobytes())
+
+
 def _smooth_broad_boundaries(ids: Image.Image) -> Image.Image:
     """Even out the edges of broad regions, leaving thin ones exactly as they are.
 
@@ -648,7 +792,7 @@ def _resolve_palette(
 def _quantize(
     image: Image.Image,
     rgbs: list[tuple[int, int, int]],
-    smooth_boundaries: bool = False,
+    subpixel: bool = False,
 ) -> tuple[Image.Image, list[str]]:
     """Map every pixel onto *rgbs*, preserving any alpha channel.
 
@@ -656,6 +800,11 @@ def _quantize(
     caller can pass that on and have the traced fills snapped to the same
     list. Pinning the pixels is only half the job: the tracer averages within
     each cluster, so boundary clusters still come back as blends.
+
+    *subpixel* says the bitmap is being traced finer than the artwork it came
+    from, which is what licenses the stricter conditioning: at twice the
+    resolution a single pixel is half a source pixel across, so a feature that
+    narrow is where the quantizer landed rather than anything drawn.
 
     Dithering is deliberately disabled: dither noise becomes thousands of
     tiny paths once traced.
@@ -672,7 +821,10 @@ def _quantize(
         "P", quantized.size, quantized.tobytes().translate(resolves_to)
     )
     quantized = _drop_speckles(quantized)
-    if smooth_boundaries:
+    quantized = _drop_strays(
+        quantized, rgbs, _COMPANY_SUBPIXEL if subpixel else _COMPANY_ALONE
+    )
+    if subpixel:
         quantized = _smooth_broad_boundaries(quantized)
     quantized.putpalette(_flat_palette(rgbs))
 
@@ -760,7 +912,7 @@ def prepare(
                     Image.Resampling.LANCZOS,
                 ),
                 palette_rgbs,
-                smooth_boundaries=True,
+                subpixel=True,
             )
             finer = PreparedImage(
                 image=enlarged,

@@ -1536,6 +1536,95 @@ def test_boundary_smoothing_leaves_thin_features_untouched():
     assert sum(1 for a, b in zip(before, after) if a != b) <= 4
 
 
+def test_ringing_beside_a_boundary_is_cleared():
+    """Compression throws dark pixels out past a light edge, and they land in
+    the flat region beside it rather than on it. The speckle pass cannot reach
+    those: it asks whether seven of a pixel's nine neighbours agree, and beside
+    a boundary they never do. Every survivor costs a notch in each curve that
+    runs past it, because the tracer has to detour around it and back — which
+    is what made traced lettering look faceted at any real zoom."""
+    from app.services.preprocess import (
+        _COMPANY_ALONE,
+        _COMPANY_SUBPIXEL,
+        _drop_speckles,
+        _drop_strays,
+    )
+
+    inks = [(102, 102, 102), (255, 255, 255), (43, 42, 40)]  # grey, white, charcoal
+    ids = Image.new("P", (40, 40), 0)
+    for x in range(40):  # a white band across the bottom half
+        for y in range(20, 40):
+            ids.putpixel((x, y), 1)
+    ids.putpixel((10, 19), 2)  # ringing, hard against the band
+    ids.putpixel((20, 19), 2)  # ...and a pair of it
+    ids.putpixel((21, 19), 2)
+
+    def ink_at(image, xy):
+        return Image.frombytes("L", image.size, image.tobytes()).getpixel(xy)
+
+    # Three inks in each of those windows, so the speckle pass leaves them all.
+    speckled = _drop_speckles(ids)
+    assert ink_at(speckled, (10, 19)) == 2
+    assert ink_at(speckled, (20, 19)) == 2
+
+    # Traced at its own resolution, a pixel with no company of its own goes and
+    # takes the ink around it; a pair still counts as company, because a
+    # one-pixel line's last pixel has exactly one neighbour of its own kind.
+    cleaned = _drop_strays(ids, inks, _COMPANY_ALONE)
+    assert ink_at(cleaned, (10, 19)) == 0
+    assert ink_at(cleaned, (20, 19)) == 2
+
+    # Traced at twice its resolution a pair is half a source pixel of ink, so
+    # nothing that was drawn can fail the stricter test and the pair goes too.
+    finer = _drop_strays(ids, inks, _COMPANY_SUBPIXEL)
+    assert ink_at(finer, (10, 19)) == 0
+    assert ink_at(finer, (20, 19)) == 0
+    assert ink_at(finer, (21, 19)) == 0
+
+
+def test_a_hairline_split_between_two_inks_is_not_read_as_strays():
+    """A one-pixel white line on a dark ground does not quantize to white. The
+    ramp puts some of its pixels on white and the rest on the mid-grey between
+    the two, so pixel by pixel the line is alone among its own kind. Judged on
+    company alone the whole line is a run of strays, and outline-only lettering
+    disappeared when it was judged that way.
+
+    What tells it from ringing is where the colour sits. Mixing two inks can
+    only ever land between them in brightness, so the mid-grey beside a white
+    line on a dark ground is never the darkest or the lightest thing in its
+    window; ringing overshoots past everything around it. Only a pixel that is
+    both alone and an extreme may go."""
+    from app.services.preprocess import (
+        _COMPANY_ALONE,
+        _drop_speckles,
+        _drop_strays,
+        _neighbourhoods,
+    )
+
+    inks = [(51, 51, 51), (255, 255, 255), (102, 102, 102)]  # dark, white, mid
+    ids = Image.new("P", (40, 40), 0)
+    for x in range(2, 38):
+        ids.putpixel((x, 20), 1 if x % 3 else 2)  # white, mid-grey every third
+
+    flat = Image.frombytes("L", ids.size, ids.tobytes())
+    company = _neighbourhoods(flat, inks).company
+    # Every mid-grey pixel on the line really is alone: not one more of its own
+    # ink anywhere in its window. Company cannot be what saves it.
+    assert all(company.getpixel((x, 20)) < 57 for x in range(3, 37, 3))
+
+    def line(image):
+        pixels = Image.frombytes("L", image.size, image.tobytes())
+        return [pixels.getpixel((x, 20)) for x in range(40)]
+
+    # This pass erodes nothing: it hands on exactly what the speckle pass ahead
+    # of it left. That pass clips the line's two end pixels, which have nothing
+    # of their own kind beside them -- longstanding behaviour, see
+    # _drop_speckles -- and everything between them stays.
+    speckled = _drop_speckles(ids)
+    assert line(_drop_strays(speckled, inks, _COMPANY_ALONE)) == line(speckled)
+    assert line(speckled).count(0) == 40 - 34
+
+
 def test_a_right_angle_survives_the_finer_trace(client):
     """The fitter is given more latitude when the bitmap is traced finer,
     because below one source pixel there is nothing real left to follow. That
