@@ -74,8 +74,28 @@ def _apply_gap_filler(paths: list[etree._Element], params: VectorizeParams) -> N
     """Hide the hairline seams renderers leave between abutting shapes.
 
     Adjacent traced shapes share an edge exactly. Anti-aliasing each of them
-    independently leaves a faint light line along that shared edge, so we
-    stroke every shape with its own fill colour to overlap the seam.
+    independently leaves both of them at partial coverage along that shared
+    edge, so the backdrop shows through it — a dark line against a dark page,
+    which is what made every letter look outlined in a viewer and in CorelDRAW.
+
+    Two things make the seal work, and both were wrong before.
+
+    It has to be **non-scaling**. The seam is one device pixel wide whatever the
+    zoom, so a width in the artwork's own coordinates is the wrong unit for it:
+    on a 3200-unit viewBox drawn 480px wide the old 0.35 covered 0.05 of a pixel
+    and sealed nothing, while a value big enough to seal at that size would
+    print as a fat halo. `vector-effect="non-scaling-stroke"` fixes the width in
+    device space, so one value holds at 100% and at 6400%, and svgToPdf maps it
+    onto a PDF line width of 0 — which PDF defines as the thinnest line the
+    device can render, i.e. that same one pixel.
+
+    And it has to be painted in the **blend of the two colours that meet**, not
+    in each shape's own colour. Stroking a shape in its own fill grows it by
+    half the stroke, so whichever shape is painted last wins the seam and the
+    artwork dilates: measured, self-coloured seals sealed the leak but pushed
+    coverage from +0.30pp to +0.87pp and cost 1.6 points of agreement with the
+    source. The midpoint colour is what correct anti-aliasing would have put
+    there anyway, so it covers the seam without moving the boundary either way.
     """
     if not params.output_gap_filler_enabled:
         return
@@ -83,13 +103,48 @@ def _apply_gap_filler(paths: list[etree._Element], params: VectorizeParams) -> N
         return  # stroked output has no seams to hide
 
     width = _fmt(params.output_gap_filler_stroke_width)
+
+    # Rank the fills by the area they cover. The most prominent one is the
+    # ground almost every other shape sits on, so it is the colour on the far
+    # side of most seams. A shape that genuinely borders something else gets a
+    # slightly wrong blend on a one-pixel line, which is still far better than
+    # letting the backdrop through.
+    areas: dict[str, float] = {}
+    for path in paths:
+        fill = path.get("fill")
+        if fill and fill != "none":
+            areas[fill] = areas.get(fill, 0.0) + _filled_area(path)
+    if not areas:
+        return
+
+    ranked = sorted(areas, key=lambda c: areas[c], reverse=True)
+    ground = ranked[0]
+    runner_up = ranked[1] if len(ranked) > 1 else ground
+
     for path in paths:
         fill = path.get("fill")
         if not fill or fill == "none":
             continue
-        path.set("stroke", fill)
+        # The ground's own neighbours are everything else, so pair it with the
+        # next most prominent colour; on two-colour artwork both shapes then
+        # seal with the same midpoint, which is what the seam actually is.
+        other = runner_up if fill == ground else ground
+        path.set("stroke", _blend(fill, other))
         path.set("stroke-width", width)
         path.set("stroke-linejoin", "round")
+        path.set("vector-effect", "non-scaling-stroke")
+
+
+def _blend(one: str, two: str) -> str:
+    """Midpoint of two hex colours, falling back to the first if either is odd.
+
+    This is the colour an anti-aliased boundary between the two would land on,
+    which is why it is the right paint for a seam seal — see _apply_gap_filler.
+    """
+    a, b = _rgb(one), _rgb(two)
+    if a is None or b is None:
+        return one
+    return "#" + "".join(f"{(x + y) // 2:02x}" for x, y in zip(a, b))
 
 
 def _rgb(value: str) -> tuple[int, int, int] | None:
@@ -854,6 +909,65 @@ def _group_by_color(root: etree._Element, paths: list[etree._Element]) -> None:
             group.append(path)
 
 
+def _add_seam_backdrop(
+    root: etree._Element,
+    paths: list[etree._Element],
+    params: VectorizeParams,
+    w: int,
+    h: int,
+    source_has_alpha: bool,
+) -> None:
+    """Lay the dominant ink under everything so a split seam cannot show page.
+
+    The seal stroke in _apply_gap_filler answers anti-aliasing, which is one
+    device pixel wide however far you zoom. It cannot answer the other half of
+    the problem: the tracer fits every shape's outline on its own, so two
+    curves along a shared edge are free to drift apart, and that gap is fixed
+    in artwork units — it *grows* on screen as you zoom in, until no stroke of
+    constant device width covers it any more. Measured against cached
+    Vectorizer.AI output on the reference lettering, whose regions share their
+    boundaries exactly and whose leak therefore halves cleanly with every
+    doubling of render scale (6735 -> 3370 -> 1689 -> 841 square units), ours
+    plateaus at 1139 where anti-aliasing alone predicts 845. That excess is
+    real holes, and it is what still showed as black hairlines at high zoom in
+    an editor after the seal went in.
+
+    Closing the holes in the geometry would mean making adjacent shapes share
+    one fitted curve, which is the tracer's business and not ours. What we can
+    do is make sure the answer to "what is behind the artwork" is never the
+    page: paint the most-covering ink across the whole canvas first, and a
+    split seam reveals that instead of black. Where a gap sits between that
+    ink and something else — much the commonest case, since it is the ground
+    almost everything borders — the repair is exact.
+
+    Skipped when the source had alpha, where showing through is the point.
+    """
+    if not params.output_gap_filler_enabled:
+        return
+    if source_has_alpha:
+        return
+    if params.output_background:
+        return  # an explicit choice already covers the canvas
+    if params.output_draw_style != "fill_shapes":
+        return
+
+    areas: dict[str, float] = {}
+    for path in paths:
+        fill = path.get("fill")
+        if fill and fill != "none" and not fill.startswith("url("):
+            areas[fill] = areas.get(fill, 0.0) + _filled_area(path)
+    if not areas:
+        return
+
+    rect = etree.Element(_q("rect"))
+    rect.set("x", "0")
+    rect.set("y", "0")
+    rect.set("width", str(w))
+    rect.set("height", str(h))
+    rect.set("fill", max(areas, key=lambda c: areas[c]))
+    root.insert(0, rect)
+
+
 def _add_background(root: etree._Element, params: VectorizeParams, w: int, h: int) -> None:
     background = params.output_background
     if not background or background == "transparent":
@@ -948,6 +1062,7 @@ def build(
     palette: list[str] | None = None,
     supersample: int = 1,
     shading: "Image.Image | None" = None,
+    source_has_alpha: bool = False,
 ) -> tuple[bytes, dict[str, float | int]]:
     """Post-process raw tracer SVG into the final document.
 
@@ -988,6 +1103,7 @@ def build(
         shaded = _apply_gradients(root, paths, shading)
     _apply_draw_style(paths, params)
     _apply_gap_filler(paths, params)
+    _add_seam_backdrop(root, paths, params, source_w, source_h, source_has_alpha)
     _add_background(root, params, source_w, source_h)
     combined = "none"
     if params.output_combine_paths != "none":

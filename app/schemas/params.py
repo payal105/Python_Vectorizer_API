@@ -298,16 +298,29 @@ class VectorizeParams(BaseModel):
         default=True,
         alias="output.gap_filler.enabled",
         description=(
-            "Stroke each shape with its own fill colour to hide the hairline "
-            "seams renderers show between abutting shapes."
+            "Hide the seams renderers show between abutting shapes: seal each "
+            "boundary with a non-scaling stroke in the blend of the two "
+            "colours that meet, and lay the most-covering ink under the whole "
+            "canvas so a split seam can never reveal the page. Turn off to "
+            "emit bare fills."
         ),
     )
     output_gap_filler_stroke_width: float = Field(
-        default=0.35,
+        default=1.0,
         alias="output.gap_filler.stroke_width",
         gt=0,
         le=10,
-        description="Width of the gap-filling stroke, in pixels.",
+        description=(
+            "Width of the seam seal, in device pixels — the stroke is "
+            "non-scaling, so this is a screen/print width and not a width in "
+            "the artwork's own coordinates. One pixel is the width of the "
+            "anti-aliasing seam it exists to cover. It used to have to be "
+            "wider to hide real gaps between independently fitted curves too, "
+            "but the backdrop handles those now, and wider only softens every "
+            "edge: measured on the reference lettering, 1.0 costs 0.055 of "
+            "mean colour error against 0.35 and 1.5 costs 0.094, with no "
+            "difference in sealing."
+        ),
     )
     output_background: str | None = Field(
         default=None,

@@ -1494,8 +1494,13 @@ def test_pixel_thresholds_keep_their_meaning_when_tracing_finer():
     assert finer["corner_threshold"] == plain["corner_threshold"]
     assert finer["corner_threshold"] <= 90
 
-    # The rest of the fitter's freedom does open up.
-    assert finer["splice_threshold"] > plain["splice_threshold"]
+    # Neither may splice_threshold, for the same reason. Raising it on the
+    # finer trace reads as "the wobble left is below one source pixel, so let
+    # the fitter splice through it", but measured against cached Vectorizer.AI
+    # output it splices through corners the artwork really has — it turned the
+    # pointed tail of a B's counter into a blob. Only the fitter's budget, not
+    # its licence to ignore corners, opens up.
+    assert finer["splice_threshold"] == plain["splice_threshold"]
     assert finer["max_iterations"] > plain["max_iterations"]
 
 

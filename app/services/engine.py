@@ -106,8 +106,17 @@ _PRESET_OVERRIDES = {
 # became 8,855 and the SVG 420K became 346K, with a hard-cornered test
 # rectangle coming out pixel-identical to the conservative setting.
 _FINER_LATITUDE = 1.5
-_FINER_SPLICE = 80
 _FINER_ITERATIONS = 32
+
+# There used to be a _FINER_SPLICE = 80 here, raising splice_threshold on the
+# finer trace on the theory that curves should splice rather than corner once
+# the wobble is below one source pixel. Measured against cached Vectorizer.AI
+# output it rounds off corners the artwork really has: on the reference
+# lettering it turned the pointed tail of a B's counter into a plain blob, and
+# dropping it removed both of that file's remaining 2-D shape errors, took the
+# pixels we get wrong where the teacher is right from 1407 to 1209, and lifted
+# agreement with the source from 98.55% to 98.69%. Across 25 cached samples it
+# improved 5 and regressed none. The smoothing preset's own splice value stands.
 
 ENGINE_NAME = "vtracer"
 
@@ -199,8 +208,6 @@ def _tracer_kwargs(
     if supersample > 1:
         if not params.asked_for("processing_length_threshold"):
             length_threshold *= _FINER_LATITUDE
-        if not params.asked_for("processing_splice_threshold"):
-            splice_threshold = max(splice_threshold, _FINER_SPLICE)
         if not params.asked_for("processing_max_iterations"):
             max_iterations = max(max_iterations, _FINER_ITERATIONS)
 

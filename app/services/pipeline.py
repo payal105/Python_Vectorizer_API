@@ -67,6 +67,7 @@ def _run_sync(
         palette=prepared.palette,
         supersample=prepared.supersample,
         shading=prepared.image,
+        source_has_alpha=prepared.has_transparency,
     )
     t_built = time.perf_counter()
 
