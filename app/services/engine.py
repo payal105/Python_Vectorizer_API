@@ -230,36 +230,41 @@ def trace(prepared: PreparedImage, params: VectorizeParams) -> TraceResult:
     """Convert a prepared bitmap into SVG source, at the resolution that suits it.
 
     Preprocessing may offer a second copy of the bitmap at twice the
-    resolution. That extra resolution is worth having when the artwork has
-    features near the pixel grid -- a one-pixel outline cannot be quantized
-    evenly, so its width wanders and the curve fitter follows every wobble --
-    but resampling sharpens noise just as readily, and on a heavily compressed
-    image it multiplies the mess instead.
+    resolution, and when it does, that copy is what gets traced. A one-pixel
+    outline cannot be quantized evenly -- whether a pixel lands on the dark
+    side depends on where the line falls inside it, so its width wanders and
+    the curve fitter follows every wobble -- and the extra pixels halve that.
 
-    Which way a given image goes is not predictable from the image, so it is
-    measured: trace both and keep whichever came out simpler. On the reference
-    artwork the finer pass went from 194 shapes to 89 and is kept; on a
-    heavily compressed test image it went from 55 to 154 and is discarded.
+    This used to trace both copies and keep whichever came out with *fewer
+    shapes*, on the theory that resampling sharpens noise as readily as
+    geometry, so a jump in shape count meant the finer copy had multiplied a
+    compressed image's mess. Shape count turns out to be the wrong question.
+    It never asked whether the extra shapes were closer to the artwork, and
+    measured against cached Vectorizer.AI corpus sources they are: on all 17
+    samples where the two rules disagree the finer trace won on both colour
+    distance and edge agreement, often heavily (one went 23.6% -> 42.2% edge
+    agreement), and none regressed. The synthetic case the old rule was built
+    for was checked against the *uncompressed* artwork it was drawn from
+    rather than the compressed bitmap fed to the tracer, and the finer trace
+    is closer there too, at JPEG quality 70 (detail 52.5% -> 67.4%) and at 50
+    (47.2% -> 63.5%). It costs file size, which is what the shape count was
+    really measuring.
+
+    Simple flat artwork is unaffected either way: its finer trace already tied
+    or won on shape count, so it was already being kept.
 
     This is CPU-bound and releases the GIL inside the Rust extension, so it is
     safe (and worthwhile) to call from a worker thread.
     """
-    result = _trace_one(prepared, params)
-    if prepared.finer is not None:
-        finer = _trace_one(prepared.finer, params)
-        if finer.shape_count <= result.shape_count:
-            logger.debug(
-                "kept the 2x trace (%s shapes vs %s)",
-                finer.shape_count,
-                result.shape_count,
-            )
-            return finer
-        logger.debug(
-            "discarded the 2x trace (%s shapes vs %s)",
-            finer.shape_count,
-            result.shape_count,
-        )
-    return result
+    if prepared.finer is None:
+        return _trace_one(prepared, params)
+
+    try:
+        return _trace_one(prepared.finer, params)
+    except VectorizationFailed:
+        # Never lose a conversion over the finer copy; the plain one still works.
+        logger.warning("the 2x trace failed, falling back to the plain one")
+        return _trace_one(prepared, params)
 
 
 def _trace_one(prepared: PreparedImage, params: VectorizeParams) -> TraceResult:

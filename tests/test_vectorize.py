@@ -1358,13 +1358,20 @@ def _outlined_disc(quality: int, supersize: int = 1) -> bytes:
     return buffer.getvalue()
 
 
-def test_the_finer_trace_is_kept_only_when_it_comes_out_simpler():
+def test_the_finer_trace_is_kept_whenever_there_is_one():
     """A one-pixel outline cannot be quantized evenly — whether a pixel lands
     on the dark side depends on where the line falls inside it, so the width
     wanders and the curve fitter follows every wobble. Tracing at twice the
-    resolution halves that, but resampling sharpens noise just as readily, and
-    on a heavily compressed image it multiplies the mess instead. Which way an
-    image goes is measured, not guessed."""
+    resolution halves that.
+
+    This used to be conditional: both copies were traced and the one with
+    fewer shapes kept, because resampling sharpens noise as readily as
+    geometry and a jump in shape count was read as a compressed image's mess
+    being multiplied. But shape count never asked whether the extra shapes sat
+    closer to the artwork. They do — on every corpus sample where the two
+    rules disagree, and on this very disc when it is scored against the
+    uncompressed original rather than the JPEG the tracer was handed. So a
+    finer copy, once preprocessing has offered one, is simply used."""
     from app.schemas.params import VectorizeParams
     from app.services import engine, preprocess
 
@@ -1374,12 +1381,14 @@ def test_the_finer_trace_is_kept_only_when_it_comes_out_simpler():
     assert clean.finer is not None
     assert engine.trace(clean, params).prepared.supersample == 2
 
+    # Heavily compressed, and the finer copy genuinely does carry more shapes.
+    # It is still the more faithful of the two, so it is still what we keep.
     noisy = preprocess.prepare(_outlined_disc(70), params, 4_000_000)
     assert noisy.finer is not None
     coarse = engine._trace_one(noisy, params)
     finer = engine._trace_one(noisy.finer, params)
     assert finer.shape_count > coarse.shape_count, (coarse.shape_count, finer.shape_count)
-    assert engine.trace(noisy, params).prepared.supersample == 1
+    assert engine.trace(noisy, params).prepared.supersample == 2
 
 
 def test_tracing_finer_does_not_change_the_output_size():

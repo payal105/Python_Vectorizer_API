@@ -14,3 +14,4 @@ samples/*.svg
 
 # tuning tool output
 tools/out/
+corpus/
