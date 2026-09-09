@@ -14,6 +14,11 @@ checked in one line rather than opened in an editor and squinted at:
 pixel sits from the nearest one. A dash means the image was read as
 continuous-tone and left alone, which is what should happen to photographs.
 
+*2x* is how the bitmap was conditioned for the enlarged trace: 'ink' if a
+palette was found and the pixels mapped onto it, 'edge' if the colours were
+left alone and the soft edges collapsed instead, and a dash if neither applied
+and it was traced at its own resolution.
+
 Warnings are printed for the failure modes worth knowing about: a palette that
 lost a colour the artwork clearly uses, an object count high enough to mean
 anti-aliasing is still being traced, and a residual close to the cutoff, where
@@ -72,10 +77,21 @@ def audit(path: Path, settings: Settings, write: Path | None) -> list[str]:
         else None
     )
 
+    # How the bitmap was conditioned for the enlarged trace. This is a
+    # decision the finished file does not show: 'ink' means a palette was
+    # found and the pixels mapped onto it, 'edge' that the colours were left
+    # alone and the soft edges collapsed instead, '-' that neither happened
+    # and it was traced at its own resolution.
+    if prepared.supersample == 1:
+        conditioning = "-"
+    else:
+        conditioning = "ink" if inks else "edge"
+
     print(
         f"  {path.name:<28} {prepared.source_width}x{prepared.source_height:<7} "
         f"{len(inks) if inks else '-':>4} "
         f"{residual if residual is not None else float('nan'):>6.2f} "
+        f"{conditioning:>5} "
         f"{meta['paths']:>8} {len(fills):>6} {elapsed:>6.0f}"
     )
     if inks:
@@ -124,7 +140,7 @@ def main() -> int:
 
     settings = Settings(max_input_pixels=40_000_000)
     print(
-        f"\n  {'file':<28} {'size':<11} {'inks':>4} {'resid':>6} "
+        f"\n  {'file':<28} {'size':<11} {'inks':>4} {'resid':>6} {'2x':>5} "
         f"{'objects':>8} {'fills':>6} {'ms':>6}"
     )
     warnings: list[str] = []

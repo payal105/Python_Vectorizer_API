@@ -470,6 +470,28 @@ def _has_gradient_band(rgb: Image.Image, inks: list[tuple[int, int, int]]) -> bo
     return False
 
 
+def _carries_a_ramp(rgb: Image.Image) -> bool:
+    """True if the artwork contains a genuine gradient, rather than flat inks.
+
+    The same question :func:`_detect_flat_palette` asks before declining to
+    flatten the colours, asked on its own so the enlarged trace can decline
+    for the same reason. Both stand down for shaded artwork, and they do it
+    because of the same mechanism: the tracer cuts a ramp into as many flat
+    layers as its colour distance allows, and giving it four times the pixels
+    lets it find more of them. Measured on artwork whose background is one
+    broad sweep, the ramp came back as one fill at 1x and five at 2x, and
+    since a gradient is then fitted per fill each got a fifth of the sweep --
+    which pads flat past its ends, so the corners of the picture lost their
+    colour. Mean error against the source went from 5.1 to 14.2.
+
+    A radial glow inside a lens is not this: it is a blob, not a band lying
+    between two colours, so illustration with a little soft shading in it
+    still gets the enlarged trace it needs.
+    """
+    inks = _accept_inks(rgb, _FLAT_MAX_INKS + 1)
+    return bool(inks) and _has_gradient_band(rgb, inks)
+
+
 def _detect_flat_palette(rgb: Image.Image) -> list[tuple[int, int, int]] | None:
     """Return the artwork's inks, or None if it is not flat artwork.
 
@@ -765,6 +787,312 @@ def _smooth_broad_boundaries(ids: Image.Image) -> Image.Image:
     )
 
 
+# Collapsing an anti-aliasing ramp into a hard edge whose *position* is
+# sub-pixel accurate. This is the smoothing that continuous-tone artwork gets:
+# it cannot be given a palette -- flattening one would band its shading, which
+# is the whole reason palette detection stands down for it -- but the edges it
+# does have deserve to be placed as precisely as a flat drawing's.
+#
+# The defect being fixed: a soft edge in the source carries the boundary's
+# true position in its ramp, and the tracer throws that away. It clusters the
+# ramp's own tones into a layer of their own, so every outline comes back with
+# a thin sliver of blend running along it, and the two hard boundaries either
+# side of that sliver each follow the pixel grid. Zoomed in, the line is not
+# smooth: it steps, and it carries a band.
+#
+# So the ramp is read rather than traced. On a copy enlarged 2x, each pixel
+# inside a ramp is pushed to whichever end of its own 3x3 neighbourhood it
+# sits nearer -- which puts the boundary within half an enlarged pixel, a
+# quarter of a source pixel, of where the ramp says it is -- and the ramp's
+# own tones stop existing, so there is no sliver left to trace.
+#
+# Two properties make this safe to run on any artwork, and both are worth
+# stating because the obvious alternatives have neither. It can only ever
+# write a value that already occurs in the pixel's own neighbourhood, so it
+# cannot invent a colour or bulge a curve between its nodes the way moving
+# control points does. And it is monotone -- a pixel moves to an end, never
+# past it -- so it cannot erase a feature: a median or mode filter eats
+# anything narrower than its window, which is how a hairline becomes dashes,
+# where this leaves a one-pixel line exactly where it was.
+
+# How big the jump across the transition has to be before it is read as an
+# edge rather than as shading. Measured over the corpus, as the bitmap reaches
+# this stage: smooth shading barely moves from pixel to pixel (a shaded
+# sphere's 95th percentile is 4, a gradient illustration's 8), sensor and JPEG
+# noise are held under the denoise filter that ran before this (a greyscale
+# photograph peaks at 40), and real edges land between 126 and 238. At 96 the
+# separation is wide in both directions.
+_EDGE_CONTRAST = 96
+
+# How wide a transition may be and still count as an edge. A soft edge is not
+# one pixel wide: artwork that has been rendered and resized carries a ramp
+# two or three pixels across, and the first version of this looked for the
+# whole jump inside a 3x3 window of the *enlarged* copy -- a pixel and a half
+# of the original, which such a ramp cannot supply -- so it snapped the outer
+# pixels of every outline and left the middle of the ramp behind as a thinner
+# sliver of the same defect.
+#
+# The gate is measured on the source rather than on the enlargement, for the
+# same reason softness is: it asks what the artwork contains, and every
+# enlargement puts a ramp along every edge. Being a quarter of the pixels with
+# windows half as wide, it is also many times cheaper -- Pillow's rank filter
+# sorts each window, so a 15x15 one over an enlarged bitmap cost five seconds
+# on a one-megapixel illustration.
+_EDGE_WINDOW = 3
+
+# ...and how much of a *doubly* wide neighbourhood's jump has to already be
+# present in that window. This is what separates a step from a ramp, and it is
+# the only test that can: both come back as a large range. A step's range stops
+# growing once the window spans it, so the two match and the ratio is near 1,
+# while shading keeps spreading and reads about a half. Measured against a
+# gradient steep enough to clear the contrast floor -- a full sweep over eight
+# source pixels does -- which reads 0.47 here and is left alone. Without this
+# test such a gradient would be snapped into bands, which is the one way this
+# stage could damage artwork it was not aimed at.
+_EDGE_COMPLETE_SHARE = 0.6
+_EDGE_WIDE_WINDOW = 7
+
+# The snap itself reaches one enlarged pixel, however wide the gate was, and
+# is repeated instead. Reaching as far as the gate would let a region three
+# source pixels away supply the value, which is enough to recolour a hairline
+# that happens to run near something darker; reaching one pixel at a time
+# cannot, because the only values in range are the pixel's own neighbours.
+# Repetition still crosses a wide ramp, since each pass turns the outermost
+# ramp pixels into plateau and the plateau advances a pixel from each side --
+# three passes close the six enlarged pixels that _EDGE_WINDOW admits.
+_EDGE_PASSES = 3
+
+# How much of an edge has to be made of intermediate tones before the bitmap
+# is believed to have soft edges at all.
+#
+# This is the entry condition for the whole stage, and it exists because an
+# edge that is already hard carries no sub-pixel position to recover -- a
+# circle plotted pixel by pixel, artwork resized nearest-neighbour, pixel art.
+# Enlarging one of those invents a ramp either side of every step of its
+# staircase, and snapping that invented ramp squares the staircase off instead
+# of cutting across it; on a shaded sphere whose rim was plotted that way it
+# came back visibly scalloped, where tracing the original at 1x had given a
+# clean circle.
+#
+# Measured over the corpus as the share of high-contrast edge pixels whose
+# brightness is strictly between their neighbours': artwork that was rendered
+# with anti-aliasing reads between 56% and 90%, and everything drawn or
+# resampled without it reads under 10% -- a hand-plotted sphere rim 9.7%, a
+# nearest-neighbour logo 0.2%. At 40% neither kind is near the line.
+_EDGE_MIN_SOFTNESS = 0.40
+
+# Below this share of the bitmap there is no edge worth the enlarged trace.
+# A photograph marks nothing at all -- measured at 0.000%, because noise never
+# clears the contrast floor -- while every drawing in the corpus marks between
+# 0.70% and 4.54%, so this only ever excludes images that would have paid four
+# times the tracing cost for no change to their geometry.
+_EDGE_MIN_SHARE = 0.0005
+
+# How small the source may be before the enlarged trace stops being worth
+# taking on this path.
+#
+# Two of the tracer's knobs are measured in source pixels and are restored to
+# that meaning when the bitmap is enlarged, and the shortest segment the curve
+# fitter will use is additionally given half again as much latitude at 2x --
+# six source pixels, all told. That is a reasonable distance to cut a curve
+# across on a large bitmap and a sixteenth of the width of a small one, where
+# it stops following features and starts cutting through them.
+#
+# Rendered at a range of sizes, the same illustration crosses over between 96
+# and 128 pixels: at 64 the enlarged trace loses the camera body and breaks
+# the arcs into blobs, at 96 it keeps the body but fragments an arc, and from
+# 128 up it is the better of the two everywhere -- smoother arcs, cleaner lens
+# rings, less lumpy facets.
+#
+# The measurement is of the smaller side, since it is the smaller side that
+# runs out first, and it applies only to this path: artwork whose colours were
+# settled has each pixel pinned to an ink, which is what carries it through
+# the same enlargement at small sizes.
+_SUPERSAMPLE_MIN_EDGE = 128
+
+
+def _grown(band: Image.Image, window: int, rank: type) -> Image.Image:
+    """A wide min or max, reached by repeating the 3x3 one.
+
+    Pillow's rank filter sorts every window, so its cost climbs with the
+    square of the width; repeating the smallest one gives pixel-identical
+    output -- a square structuring element decomposes -- for a fraction of the
+    work, measured at 311ms against 726ms for a 15-wide max over a
+    two-megapixel band.
+    """
+    for _ in range(window // 2):
+        band = band.filter(rank(3))
+    return band
+
+
+def _widest_range(bands: list[Image.Image], window: int) -> Image.Image:
+    """How far apart the extremes of each *window* sit, over the widest channel.
+
+    An edge is a property of the colour, not of one channel at a time, so the
+    channel that moves furthest decides and all three are then snapped
+    together. Judging each channel on its own lets two of them disagree about
+    which side of a ramp a pixel belongs to, which invents a colour that is in
+    the artwork nowhere -- magenta speckles along a charcoal curve, when this
+    was first tried that way.
+    """
+    widest = None
+    for band in bands:
+        spread = ImageChops.difference(
+            _grown(band, window, ImageFilter.MaxFilter),
+            _grown(band, window, ImageFilter.MinFilter),
+        )
+        widest = spread if widest is None else ImageChops.lighter(widest, spread)
+    assert widest is not None
+    return widest
+
+
+def _soft_edges(bands: list[Image.Image]) -> Image.Image:
+    """Mark the pixels sitting in a step between two regions."""
+    near = _widest_range(bands, _EDGE_WINDOW)
+    wide = _widest_range(bands, _EDGE_WIDE_WINDOW)
+    big = near.point([255 if v >= _EDGE_CONTRAST else 0 for v in range(256)])
+    # near >= share * wide, rearranged so the division lands on the small
+    # number and the comparison stays a subtract-and-threshold in C.
+    stretched = near.point(
+        [min(255, int(v / _EDGE_COMPLETE_SHARE)) for v in range(256)]
+    )
+    complete = ImageChops.subtract(wide, stretched).point(
+        [255 if v == 0 else 0 for v in range(256)]
+    )
+    return ImageChops.multiply(big, complete)
+
+
+def _interior(
+    brightness: Image.Image,
+    darkest: Image.Image | None = None,
+    lightest: Image.Image | None = None,
+) -> Image.Image:
+    """Mark pixels whose brightness is strictly between their neighbours'.
+
+    These are the only pixels this stage may move, and saying so is what makes
+    it idempotent: a pixel already sitting at an end of its own neighbourhood
+    is plateau, not ramp, so once a ramp has been consumed nothing moves again.
+    Without that, repeated passes stop sharpening and start eroding -- convex
+    corners lose a pixel per pass and concave ones gain one, which is
+    morphological rounding, and on a staircase it shows up as scalloping.
+
+    The neighbourhood extremes are passed in where the caller has already paid
+    for them.
+    """
+    if darkest is None:
+        darkest = brightness.filter(ImageFilter.MinFilter(3))
+    if lightest is None:
+        lightest = brightness.filter(ImageFilter.MaxFilter(3))
+    above = ImageChops.subtract(brightness, darkest).point(
+        [255 if v else 0 for v in range(256)]
+    )
+    below = ImageChops.subtract(lightest, brightness).point(
+        [255 if v else 0 for v in range(256)]
+    )
+    return ImageChops.multiply(above, below)
+
+
+def _edge_softness(bands: list[Image.Image], brightness: Image.Image) -> float:
+    """What share of this bitmap's edges are made of intermediate tones."""
+    edge = _widest_range(bands, _EDGE_WINDOW).point(
+        [255 if v >= _EDGE_CONTRAST else 0 for v in range(256)]
+    )
+    total = edge.histogram()[255]
+    if not total:
+        return 0.0
+    return ImageChops.multiply(edge, _interior(brightness)).histogram()[255] / total
+
+
+def _mask_share(mask: Image.Image) -> float:
+    counts = mask.histogram()
+    return counts[255] / (mask.width * mask.height) if mask.width else 0.0
+
+
+def _steepen(bands: list[Image.Image], edge: Image.Image) -> list[Image.Image]:
+    """One pass: move each marked pixel onto the nearer of its neighbours' extremes."""
+    brightness = Image.merge("RGB", bands).convert("L")
+    darkest = brightness.filter(ImageFilter.MinFilter(3))
+    lightest = brightness.filter(ImageFilter.MaxFilter(3))
+    # The side is chosen once, from brightness, and applied to all three
+    # channels -- see _widest_range on why they must not choose separately.
+    # Ties stay put: a pixel exactly between its two extremes is as likely to
+    # be the crest of a thin feature as a point on a ramp.
+    upper = ImageChops.subtract(
+        ImageChops.difference(brightness, darkest),
+        ImageChops.difference(lightest, brightness),
+    ).point([255 if v else 0 for v in range(256)])
+    moving = ImageChops.multiply(edge, _interior(brightness, darkest, lightest))
+    return [
+        Image.composite(
+            Image.composite(
+                band.filter(ImageFilter.MaxFilter(3)),
+                band.filter(ImageFilter.MinFilter(3)),
+                upper,
+            ),
+            band,
+            moving,
+        )
+        for band in bands
+    ]
+
+
+def _even_broad_edges(rgb: Image.Image) -> Image.Image:
+    """Even out the staircase collapsing the ramps leaves behind.
+
+    Snapping puts the boundary within half an enlarged pixel of where the ramp
+    said it was, which is a quarter of a source pixel -- but it puts it there
+    *on the enlarged grid*, so a long shallow edge comes out as a run of steps
+    rather than a line. The curve fitter cuts across most of them and turns
+    the rest into corners, because a step of half a source pixel on an
+    otherwise straight run bends further than the angle it keeps sharp; at
+    high zoom those read as notches along an edge that should be smooth.
+
+    This is :func:`_smooth_broad_boundaries` for pixels rather than for ink
+    labels, and it is guarded the same way: a median is applied only where
+    some 3x3 window is a single colour, spread by one pixel, so it reaches the
+    edges of broad regions and never a thread -- a median eats anything
+    narrower than its window, which is how a hairline becomes dashes.
+
+    A median is safe on colour here for the same reason the snap is: after
+    snapping, the window either side of an edge holds two colours and no
+    blend, so every channel's median comes from the same majority pixels and
+    the result is one of the two colours actually there.
+    """
+    bands = list(rgb.split())
+    uniform = _widest_range(bands, 3).point([255 if v == 0 else 0 for v in range(256)])
+    broad = uniform.filter(ImageFilter.MaxFilter(3))
+    return Image.merge(
+        "RGB",
+        [
+            Image.composite(band.filter(ImageFilter.MedianFilter(3)), band, broad)
+            for band in bands
+        ],
+    )
+
+
+def _snap_soft_edges(rgb: Image.Image, edge: Image.Image) -> Image.Image:
+    """Collapse every soft edge into a hard one, sub-pixel accurately placed.
+
+    *rgb* is the enlarged copy and *edge* the mark taken from the source it
+    was enlarged from, scaled up to match. The enlargement has to be by a
+    filter that does not overshoot. Lanczos was the obvious choice and is
+    wrong here: its ringing puts values outside the range the two regions
+    actually span, and a channel that has rung past its neighbour picks the
+    opposite end from the other two, so the boundary comes back stippled with
+    colours the artwork never had. Bilinear has no overshoot, and the only
+    thing this stage needs from the enlargement is where the ramp crosses its
+    own halfway point, which bilinear places exactly.
+
+    The mark is taken once and every pass is confined to it. Recomputing it as
+    the edges steepen would let it creep outwards into whatever the sharpened
+    boundary now contrasts with.
+    """
+    bands = list(rgb.split())
+    for _ in range(_EDGE_PASSES):
+        bands = _steepen(bands, edge)
+    return _even_broad_edges(Image.merge("RGB", bands))
+
+
 def _resolve_palette(
     image: Image.Image,
     max_colors: int,
@@ -845,13 +1173,126 @@ def _quantize(
 # relative to the line and the outline comes out even: 194 traced shapes
 # became 89.
 #
-# But resampling sharpens noise as readily as geometry. On a heavily
-# compressed test image, where the tracer was already splitting one dark ring
-# into two shades, the same treatment took 55 traced shapes to 154. Which way
-# it goes cannot be predicted from the image, so it is measured instead: both
-# are traced and the one that came out simpler is kept. See engine.trace.
+# The same reasoning applies to artwork whose colours are left alone, for
+# which there is no quantizer but the same lost half-pixel: see
+# :func:`_snap_soft_edges`. Which conditioning the enlarged copy gets, and
+# whether it is offered at all, is :func:`_finer_copy`'s decision; tracing it
+# in preference to the plain one is engine.trace's.
 _SUPERSAMPLE = 2
 _SUPERSAMPLE_MAX_PIXELS = 12_000_000
+
+
+def _plan_soft_edges(
+    image: Image.Image, params: VectorizeParams, budget: int
+) -> Image.Image | None:
+    """The mark to collapse the ramps by, or None if this bitmap should not.
+
+    Taken before denoising, because the answer decides whether to denoise at
+    all -- see :func:`prepare` -- and because every gate here asks about the
+    artwork rather than about the noise in it.
+
+    It declines for five reasons: the caller is driving the colours
+    themselves, the bitmap is too small for the curve fitter's own shortest
+    segment to be a small part of it, its edges are already hard and so carry
+    no sub-pixel position to recover, it is a gradient rather than artwork
+    with edges, or it has no edges at all.
+    """
+    if not params.auto_palette:
+        logger.debug("caller is driving the colours, tracing at 1x")
+        return None
+    if image.width * image.height * _SUPERSAMPLE**2 > budget:
+        logger.debug("too large to trace at %sx", _SUPERSAMPLE)
+        return None
+    if min(image.size) < _SUPERSAMPLE_MIN_EDGE:
+        logger.debug("source is %sx%s, tracing at 1x", *image.size)
+        return None
+    flat = image.convert("RGB")
+    bands = list(flat.split())
+    softness = _edge_softness(bands, flat.convert("L"))
+    if softness < _EDGE_MIN_SOFTNESS:
+        logger.debug("edges are already hard (%.0f%% soft), tracing at 1x", softness * 100)
+        return None
+    if _carries_a_ramp(flat):
+        logger.debug("artwork carries a gradient, tracing at 1x")
+        return None
+    edge = _soft_edges(bands)
+    share = _mask_share(edge)
+    if share < _EDGE_MIN_SHARE:
+        logger.debug("no edges to place (%.4f%%), tracing at 1x", share * 100)
+        return None
+    return edge
+
+
+def _finer_copy(
+    original: Image.Image,
+    palette_rgbs: list[tuple[int, int, int]] | None,
+    palette: list[str] | None,
+    *,
+    plan: Image.Image | None,
+    source_format: str,
+    source_width: int,
+    source_height: int,
+    downscaled: bool,
+) -> PreparedImage | None:
+    """The enlarged copy of the bitmap, or None if there is nothing to gain.
+
+    Both kinds of artwork want the same thing from the enlargement -- the
+    boundary placed where the source's soft edge says it is, rather than on
+    the nearest pixel corner -- but they cannot be conditioned the same way.
+
+    Artwork whose colours were settled gets quantized again at the finer
+    scale, which snaps the ramp onto real inks and licenses the stricter
+    stray and boundary treatment; the enlargement may as well be lanczos
+    there, since every value lands on an ink afterwards and its ringing is
+    clamped away.
+
+    Continuous-tone artwork has no inks to snap to, so its ramps are collapsed
+    in place instead, and the enlargement has to be one that does not
+    overshoot -- see :func:`_snap_soft_edges`. It is also the path that can
+    decline, and it declines for four reasons: a bitmap too small for the
+    curve fitter's own minimum segment to be a small part of it, one whose
+    edges are already hard and so carry no sub-pixel position to recover, one
+    that is a gradient rather than artwork with edges, and one with no edges
+    at all. Each keeps the plain 1x trace it had before.
+    """
+    size = (original.width * _SUPERSAMPLE, original.height * _SUPERSAMPLE)
+
+    if palette_rgbs is not None:
+        enlarged, _ = _quantize(
+            original.resize(size, Image.Resampling.LANCZOS),
+            palette_rgbs,
+            subpixel=True,
+        )
+    elif plan is None:
+        return None
+    else:
+        enlarged = original.resize(size, Image.Resampling.BILINEAR)
+        alpha = enlarged.getchannel("A") if enlarged.mode == "RGBA" else None
+        # The mark is a region, not a boundary, so nearest-neighbour is the
+        # right way to carry it up; it is then grown by one enlarged pixel so
+        # it still covers the ramp at the edges of what it marked.
+        grown = plan.resize(size, Image.Resampling.NEAREST).filter(
+            ImageFilter.MaxFilter(3)
+        )
+        snapped = _snap_soft_edges(enlarged.convert("RGB"), grown)
+        if alpha is not None:
+            snapped = snapped.convert("RGBA")
+            snapped.putalpha(alpha)
+        enlarged = snapped
+
+    return PreparedImage(
+        image=enlarged,
+        source_format=source_format,
+        source_width=source_width,
+        source_height=source_height,
+        traced_width=enlarged.size[0],
+        traced_height=enlarged.size[1],
+        downscaled=downscaled,
+        color_count=len(palette) if palette else None,
+        palette=palette,
+        has_transparency=_has_transparency(enlarged),
+        supersample=_SUPERSAMPLE,
+    )
 
 
 def prepare(
@@ -889,44 +1330,45 @@ def prepare(
     # into dashes -- while the same file with no median traced it as one even
     # line. So denoise only when the colours are staying as they are, or when
     # the caller asked for a level themselves.
+    #
+    # It stays on the ramp-collapsing path even though that path has its own,
+    # gentler cleanup, because the two are not interchangeable: the collapse
+    # is monotone and so cannot erase a thin feature, but it also cannot undo
+    # the overshoot compression leaves along an edge, and snapping a bitmap
+    # with that overshoot still in it doubled the shapes on a JPEG. The cost
+    # is that a rule one pixel wide still loses most of its colour to the
+    # median -- measured from (65, 72, 86) to (177, 179, 179) -- so hairlines
+    # come out paler here than they do once a palette has pinned them.
     palette_rgbs = _resolve_palette(
         image,
         params.processing_max_colors,
         params.processing_palette,
         params.auto_palette,
     )
+    plan = None
     if palette_rgbs is None or params.asked_for("processing_denoise"):
         image = _denoise(image, params.processing_denoise)
+    if palette_rgbs is None:
+        plan = _plan_soft_edges(image, params, _SUPERSAMPLE_MAX_PIXELS)
 
-    finer = None
+    original = image
     if palette_rgbs is None:
         palette = None
     else:
-        original = image
         image, palette = _quantize(image, palette_rgbs)
-        pixels = original.width * original.height
-        if pixels * _SUPERSAMPLE**2 <= _SUPERSAMPLE_MAX_PIXELS:
-            enlarged, _ = _quantize(
-                original.resize(
-                    (original.width * _SUPERSAMPLE, original.height * _SUPERSAMPLE),
-                    Image.Resampling.LANCZOS,
-                ),
-                palette_rgbs,
-                subpixel=True,
-            )
-            finer = PreparedImage(
-                image=enlarged,
-                source_format=source_format,
-                source_width=source_width,
-                source_height=source_height,
-                traced_width=enlarged.size[0],
-                traced_height=enlarged.size[1],
-                downscaled=downscaled,
-                color_count=len(palette),
-                palette=palette,
-                has_transparency=_has_transparency(enlarged),
-                supersample=_SUPERSAMPLE,
-            )
+
+    finer = None
+    if original.width * original.height * _SUPERSAMPLE**2 <= _SUPERSAMPLE_MAX_PIXELS:
+        finer = _finer_copy(
+            original,
+            palette_rgbs,
+            palette,
+            plan=plan,
+            source_format=source_format,
+            source_width=source_width,
+            source_height=source_height,
+            downscaled=downscaled,
+        )
 
     return PreparedImage(
         image=image,

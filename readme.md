@@ -500,6 +500,51 @@ reference file that touches 0.012% of the pixels and takes the SVG from 506K
 to 423K — the same curves with a sixth fewer nodes to edit. It costs about
 1.9s on a 9.3M-pixel bitmap, and runs only on the finer copy.
 
+#### Artwork that keeps its own colours
+
+Everything above needs a palette: the ramp is snapped onto real inks, and the
+mode filter works on ink labels. Shaded artwork gets no palette — flattening a
+gradient to a dozen colours would be vandalism — so until recently it got none
+of this either. It was traced once, at its own resolution, with the ramp along
+every edge still in it, and the tracer did what it does with a ramp: clustered
+those tones into a layer of their own. Every outline came back with a sliver
+of blend running beside it, and the two boundaries either side of that sliver
+each followed the pixel grid. At any real zoom the line was not smooth. It
+stepped, and it carried a band.
+
+The ramp is the fix, not the problem. A soft edge records where the boundary
+truly falls, at finer than a pixel, and the ramp is that record. So on a copy
+enlarged 2× — bilinear, because lanczos rings and a channel that has rung past
+its neighbour picks the opposite side from the other two, which stipples the
+boundary with colours the artwork never had — every pixel inside a ramp is
+pushed to whichever end of its own neighbourhood it sits nearer. That places
+the edge within a quarter of a source pixel of where the ramp says it is, and
+leaves no blend tones for the tracer to find. On a shaded illustration it took
+38 paths to 20 and 57 shapes to 30, and the arcs that were ragged came back
+clean.
+
+It is deliberately narrow about when it runs, because most of the ways it
+could go wrong are ways of damaging artwork it was not aimed at. It stands
+down for a bitmap whose edges are already hard, where there is no sub-pixel
+position to recover and enlarging only squares off an existing staircase; for
+one that carries a real gradient, since the tracer cuts a ramp into more flat
+layers the more pixels it is given; for a source under 128 pixels on its short
+side, where the fitter's own shortest segment is a sixteenth of the picture;
+for a photograph, whose noise never clears the contrast floor; and whenever
+the caller is driving the colours themselves, for the same reason automatic
+palette detection stands down there. Each of those keeps the plain 1× trace
+unchanged. Across a corpus of flat art, hairlines, gradients, compressed
+JPEGs, a photograph, a thumbnail and pixel-plotted shapes, only the shaded
+illustrations came out different at all — every other file was byte-identical.
+
+The two guarantees worth stating, because the obvious alternatives have
+neither: the stage can only ever write a value that already occurs in the
+pixel's own neighbourhood, so it cannot invent a colour or bow a curve between
+its nodes the way moving control points does; and it only ever moves a pixel
+*to* an end, never past one, so it cannot erase a feature — a one-pixel rule
+comes through exactly where it was, where a median or mode filter would eat
+it. It costs about 2.3s on a one-megapixel illustration.
+
 Below one source pixel there is nothing real left for the fitter to follow —
 whatever wobble survives at that scale is where the quantizer happened to put
 the boundary, not something the artwork contains. So when the bitmap is traced
@@ -789,7 +834,7 @@ them. A pinned palette, a colour budget, or a palette the detector found all
 mean the artwork was already judged flat, and the fills stay flat.
 
 **Format support is uneven, and it is reportlab's, not ours.** Its PDF backend
-writes a real `/Shading`, so PDF and SVG both keep the gradient. Its PNG and
+writes a real `/Shading` for both kinds, so PDF and SVG keep the gradient. Its PNG and
 PostScript backends have no gradient support at all — they do not ignore one,
 they raise partway through drawing — so for those two each gradient fill is
 replaced by the colour halfway along it. The PNG is a preview and the flat
