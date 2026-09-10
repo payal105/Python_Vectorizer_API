@@ -1985,3 +1985,103 @@ def test_the_flat_stand_in_is_the_average_along_the_ramp():
     flattened = flatten_gradients(svg)
     value = int(re.search(rb'fill="#(..)', flattened).group(1), 16)
     assert value > 200, flattened
+
+
+# --- despeckling only where there is speckle ---------------------------------
+
+
+def _brush_on_pale_ground(size: int = 500) -> Image.Image:
+    """A white brush stroke on a pale pink ground, saved losslessly.
+
+    The two colours are far enough apart to be different inks and close enough
+    that losing the stroke leaves a shape the same colour as the page. This is
+    the artwork a median despeckle quietly destroys.
+    """
+    from PIL import ImageDraw, ImageFilter
+
+    scale = 3
+    canvas = (size * scale, size * scale)
+    stroke = Image.new("L", canvas, 0)
+    draw = ImageDraw.Draw(stroke)
+    draw.arc(
+        [int(size * 0.12 * scale), int(size * 0.12 * scale),
+         int(size * 0.88 * scale), int(size * 0.88 * scale)],
+        start=200, end=520, fill=255, width=int(size * 0.045 * scale),
+    )
+    stroke = stroke.filter(ImageFilter.GaussianBlur(1.2 * scale))
+    art = Image.new("RGB", canvas, (242, 215, 234))
+    art.paste(Image.new("RGB", canvas, (255, 255, 255)), (0, 0), stroke)
+    return art.resize((size, size), Image.Resampling.LANCZOS)
+
+
+def _palest_fill(svg: bytes):
+    fills = {f.decode() for f in re.findall(rb'fill="(#[0-9a-fA-F]{6})"', svg)}
+    if not fills:
+        return None
+    return max(fills, key=lambda f: min(int(f[i : i + 2], 16) for i in (1, 3, 5)))
+
+
+def test_a_pale_stroke_on_a_lossless_file_keeps_its_colour(client):
+    """The reported defect: a white brush heart on a pink ground came back the
+    same colour as the ground. The stroke is wide enough to survive a median
+    as pixels, but the filter changes the ramp along its edges enough that the
+    tracer stops clustering it separately -- and a lossless file has no
+    compression noise for the filter to have been removing in the first place."""
+    art = _brush_on_pale_ground()
+    response = post(client, png_bytes(art), name="brush.png")
+    assert response.status_code == 200
+    palest = _palest_fill(response.content)
+    assert palest is not None
+    assert min(int(palest[i : i + 2], 16) for i in (1, 3, 5)) > 240, (
+        f"the white stroke came back as {palest}"
+    )
+
+
+def test_a_lossy_file_is_still_despeckled():
+    """...and the median keeps its place where there is something to remove.
+    Shaded artwork saved as a JPEG carries ringing along every edge, and the
+    same sphere traces to 2 shapes with the filter and 35 without."""
+    from app.schemas.params import VectorizeParams
+    from app.services import preprocess
+
+    buffer = io.BytesIO()
+    _shaded_sphere(320).save(buffer, format="JPEG", quality=45)
+    data = buffer.getvalue()
+
+    prepared = preprocess.prepare(data, VectorizeParams(), 40_000_000)
+    assert prepared.source_format == "JPEG"
+    assert prepared.palette is None, "fixture must take the continuous-tone path"
+    untouched = preprocess.prepare(
+        data, VectorizeParams.model_validate({"processing.denoise": "none"}), 40_000_000
+    )
+    # The despeckled copy differs from the raw one: the filter ran.
+    assert list(prepared.image.getdata()) != list(untouched.image.getdata())
+
+
+def test_a_lossless_file_is_left_alone():
+    """The other half of the same rule."""
+    from app.schemas.params import VectorizeParams
+    from app.services import preprocess
+
+    data = png_bytes(_brush_on_pale_ground())
+    prepared = preprocess.prepare(data, VectorizeParams(), 40_000_000)
+    untouched = preprocess.prepare(
+        data, VectorizeParams.model_validate({"processing.denoise": "none"}), 40_000_000
+    )
+    assert list(prepared.image.getdata()) == list(untouched.image.getdata())
+
+
+def test_denoise_is_still_honoured_when_the_caller_asks_for_it():
+    """Skipping the filter is a default, not a policy."""
+    from app.schemas.params import VectorizeParams
+    from app.services import preprocess
+
+    art = _brush_on_pale_ground()
+    data = png_bytes(art)
+    default = preprocess.prepare(data, VectorizeParams(), 40_000_000)
+    asked = preprocess.prepare(
+        data,
+        VectorizeParams.model_validate({"processing.denoise": "high"}),
+        40_000_000,
+    )
+    assert list(default.image.getdata()) != list(asked.image.getdata())

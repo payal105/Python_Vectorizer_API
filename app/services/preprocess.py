@@ -27,6 +27,13 @@ SUPPORTED_INPUT_FORMATS = frozenset(
     {"PNG", "JPEG", "WEBP", "BMP", "GIF", "TIFF", "PPM", "TGA", "ICO"}
 )
 
+# Formats that can arrive carrying compression noise, which is the only thing
+# the median despeckle exists to remove -- see prepare(). WEBP is left out
+# because it is lossless as often as not and Pillow does not say which, and
+# the cost of denoising artwork that does not need it is higher than the cost
+# of leaving a lossy one alone: the caller can still ask for a level.
+LOSSY_INPUT_FORMATS = frozenset({"JPEG"})
+
 
 @dataclass(slots=True)
 class PreparedImage:
@@ -1350,8 +1357,24 @@ def prepare(
         params.processing_palette,
         params.auto_palette,
     )
+    # ...and only when there is compression noise for it to remove. A median
+    # is a lossy operation dressed as a cleanup: it answers what the majority
+    # of a neighbourhood says, so anything that is a minority in its own window
+    # is rewritten as its surroundings. On a lossless file there is nothing for
+    # it to find and the rewriting is all it does. It cost the white brush
+    # heart of a pink sticker its entire fill: the stroke is 11 to 106 pixels
+    # wide and survived the filter as pixels, but the filter changed the ramp
+    # along its edges enough that the tracer stopped clustering it separately,
+    # and the palest colour to come back was #f9eef5 against a #f2d7ea ground
+    # -- a heart the same colour as the page it sits on. Traced without it the
+    # heart comes back whole and agreement rises from 1.26 to 0.84.
+    #
+    # On a JPEG it earns its place and keeps it: the same artwork at quality 70
+    # traces to 2 objects with the median and 35 without, the extra 33 being
+    # ringing around the edges rather than anything in the artwork.
     plan = None
-    if palette_rgbs is None or params.asked_for("processing_denoise"):
+    lossy = source_format in LOSSY_INPUT_FORMATS
+    if params.asked_for("processing_denoise") or (palette_rgbs is None and lossy):
         image = _denoise(image, params.processing_denoise)
     if palette_rgbs is None:
         plan = _plan_soft_edges(image, params, _SUPERSAMPLE_MAX_PIXELS)

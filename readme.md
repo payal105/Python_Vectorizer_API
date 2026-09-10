@@ -150,7 +150,7 @@ with types, ranges and defaults, generated from the schema.
 | `processing.palette` | hex list | – | Pin output colours exactly, e.g. `#ff0000,#00ff00`. Output fills are snapped to this list, so you get exactly this many layers. The strongest fix for ghost layers — see [Ghost layers](#ghost-layers-in-an-editor). |
 | `processing.color_merge` | 0–160 | `16` | Snap minor fills onto the nearest prominent one within this RGB distance. Removes the pale lumps left where anti-aliasing blends two flat regions. See [Transition lumps](#transition-lumps-between-two-colours). |
 | `processing.detail` | `low`, `standard`, `high`, `maximum` | `standard` | Smallest feature kept, and path coordinate precision. See [Detail](#detail-thin-lines-and-small-features). |
-| `processing.denoise` | `none`, `low`, `medium`, `high` | `low` | Median despeckle before tracing. The main defence against chunky, notched edges. See [Edge smoothness](#edge-smoothness). |
+| `processing.denoise` | `none`, `low`, `medium`, `high` | `low` | Median despeckle before tracing, applied to **lossy sources only** unless you set it yourself. The main defence against chunky, notched edges on a JPEG; on a lossless file there is no compression noise to remove and the filter only costs detail. See [Edge smoothness](#edge-smoothness). |
 | `processing.smoothing` | `none`, `low`, `medium`, `high` | `low` | How hard to round off corners. See [Edge smoothness](#edge-smoothness). |
 | `processing.hierarchical` | `stacked`, `cutout` | `cutout` | `cutout` emits non-overlapping shapes; `stacked` layers them back-to-front for a smaller file. Defaults to `cutout` because `output.combine_paths` requires it — asking for `stacked` turns combining off. |
 | `processing.curve_mode` | `spline`, `polygon`, `pixel` | `spline` | Bézier curves, straight edges, or no fitting. |
@@ -383,6 +383,29 @@ colour bands. Neither is a smoothing decision, so both stay explicit.
 Pre-blurring or upscaling the bitmap before tracing was tried and rejected —
 it makes edges visibly lumpy, because the softened ramp gives the curve fitter
 a wobbly boundary to follow.
+
+### A pale shape coming back the colour of its background
+
+A median despeckle is a lossy operation dressed as a cleanup. It answers what
+the majority of a neighbourhood says, so anything that is a minority in its own
+window gets rewritten as its surroundings — and on a file with no compression
+noise, rewriting is the only thing it does.
+
+It cost a white brush-stroke heart on a pale pink sticker its entire fill. The
+stroke is 11 to 106 pixels wide and survived the filter *as pixels*, but the
+filter changed the ramp along its edges enough that the tracer stopped
+clustering it separately: the palest colour to come back was `#f9eef5` against
+an `#f2d7ea` ground — a heart the same colour as the page it sits on. Traced
+without the filter it comes back whole, and agreement with the source goes from
+1.26 to 0.84.
+
+So the despeckle now runs by default only on **lossy sources**, which is the
+only place the noise it exists to remove can come from. There it keeps its
+place and earns it: the same artwork at JPEG quality 70 traces to 2 objects
+with the filter and 35 without, the extra 33 being ringing around the edges
+rather than anything in the artwork. Setting `processing.denoise` yourself
+still applies it to anything, lossless included — skipping it is a default, not
+a policy.
 
 ### Ghost layers in an editor
 
@@ -1128,7 +1151,7 @@ replaced by an explicit limit that returns a clear `1004` error.
 (or plain `pip install -r requirements-dev.txt` and `pytest` with the
 environment activated)
 
-199 tests cover every output format, all three image-input styles, parameter
+203 tests cover every output format, all three image-input styles, parameter
 validation and rejection, geometry and unit conversion, colour quantization
 and palette pinning, draw styles, transparency, watermarking, credits,
 authentication, rate limiting, SSRF policy and the error envelope — plus the
@@ -1167,7 +1190,7 @@ app/
     render.py          SVG -> PDF / EPS / PNG
     pipeline.py        orchestration, threading, timeouts
     fetch.py           SSRF-guarded URL fetching
-tests/                 199 tests
+tests/                 203 tests
 ```
 
 ---
