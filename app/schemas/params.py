@@ -178,7 +178,7 @@ class VectorizeParams(BaseModel):
         ),
     )
     processing_denoise: Denoise = Field(
-        default="low",
+        default="none",
         alias="processing.denoise",
         description=(
             "Median despeckle applied before tracing. JPEG artefacts and scan "

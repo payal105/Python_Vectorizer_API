@@ -1,0 +1,569 @@
+[
+ {
+  "stem": "000",
+  "file": "000.png",
+  "label": "WhatsApp Image 2026-08-22 at 8.33.26 PM.jpeg",
+  "mode": "logo",
+  "split": "train",
+  "width": 700,
+  "height": 606
+ },
+ {
+  "stem": "001",
+  "file": "001.png",
+  "label": "WhatsApp Image 2026-08-22 at 8.33.35 PM.jpeg",
+  "mode": "artwork",
+  "split": "train",
+  "width": 509,
+  "height": 700
+ },
+ {
+  "stem": "002",
+  "file": "002.png",
+  "label": "WhatsApp Image 2026-08-22 at 8.33.39 PM.jpeg",
+  "mode": "artwork",
+  "split": "train",
+  "width": 700,
+  "height": 243
+ },
+ {
+  "stem": "003",
+  "file": "003.png",
+  "label": "WhatsApp Image 2026-08-22 at 8.33.44 PM.jpeg",
+  "mode": "artwork",
+  "split": "validation",
+  "width": 700,
+  "height": 337
+ },
+ {
+  "stem": "004",
+  "file": "004.png",
+  "label": "WhatsApp Image 2026-08-22 at 8.33.48 PM.jpeg",
+  "mode": "artwork",
+  "split": "train",
+  "width": 700,
+  "height": 459
+ },
+ {
+  "stem": "005",
+  "file": "005.png",
+  "label": "WhatsApp Image 2026-08-23 at 11.05.16 PM.jpeg",
+  "mode": "logo",
+  "split": "train",
+  "width": 685,
+  "height": 700
+ },
+ {
+  "stem": "006",
+  "file": "006.png",
+  "label": "WhatsApp Image 2026-08-23 at 11.05.53 PM.jpeg",
+  "mode": "logo",
+  "split": "train",
+  "width": 560,
+  "height": 700
+ },
+ {
+  "stem": "007",
+  "file": "007.png",
+  "label": "WhatsApp Image 2026-08-23 at 11.06.03 PM.jpeg",
+  "mode": "artwork",
+  "split": "validation",
+  "width": 563,
+  "height": 700
+ },
+ {
+  "stem": "008",
+  "file": "008.png",
+  "label": "WhatsApp Image 2026-08-23 at 11.06.27 PM.jpeg",
+  "mode": "artwork",
+  "split": "train",
+  "width": 483,
+  "height": 700
+ },
+ {
+  "stem": "009",
+  "file": "009.png",
+  "label": "WhatsApp Image 2026-08-23 at 11.06.32 PM.jpeg",
+  "mode": "artwork",
+  "split": "train",
+  "width": 526,
+  "height": 700
+ },
+ {
+  "stem": "010",
+  "file": "010.png",
+  "label": "WhatsApp Image 2026-08-23 at 11.06.36 PM.jpeg",
+  "mode": "artwork",
+  "split": "train",
+  "width": 394,
+  "height": 700
+ },
+ {
+  "stem": "011",
+  "file": "011.png",
+  "label": "WhatsApp Image 2026-08-23 at 11.06.43 PM.jpeg",
+  "mode": "logo",
+  "split": "validation",
+  "width": 390,
+  "height": 582
+ },
+ {
+  "stem": "012",
+  "file": "012.png",
+  "label": "WhatsApp Image 2026-08-23 at 11.06.54 PM.jpeg",
+  "mode": "artwork",
+  "split": "train",
+  "width": 467,
+  "height": 700
+ },
+ {
+  "stem": "013",
+  "file": "013.png",
+  "label": "WhatsApp Image 2026-08-23 at 11.07.05 PM.jpeg",
+  "mode": "artwork",
+  "split": "train",
+  "width": 467,
+  "height": 700
+ },
+ {
+  "stem": "014",
+  "file": "014.png",
+  "label": "WhatsApp Image 2026-08-23 at 11.07.28 PM.jpeg",
+  "mode": "artwork",
+  "split": "train",
+  "width": 467,
+  "height": 700
+ },
+ {
+  "stem": "015",
+  "file": "015.png",
+  "label": "WhatsApp Image 2026-09-03 at 11.12.48 AM (1).jpeg",
+  "mode": "artwork",
+  "split": "validation",
+  "width": 700,
+  "height": 466
+ },
+ {
+  "stem": "016",
+  "file": "016.png",
+  "label": "WhatsApp Image 2026-09-03 at 11.12.48 AM.jpeg",
+  "mode": "logo",
+  "split": "train",
+  "width": 700,
+  "height": 700
+ },
+ {
+  "stem": "017",
+  "file": "017.png",
+  "label": "WhatsApp Image 2026-09-03 at 11.12.49 AM (1).jpeg",
+  "mode": "logo",
+  "split": "train",
+  "width": 700,
+  "height": 621
+ },
+ {
+  "stem": "018",
+  "file": "018.png",
+  "label": "WhatsApp Image 2026-09-03 at 11.12.49 AM (2).jpeg",
+  "mode": "artwork",
+  "split": "train",
+  "width": 700,
+  "height": 700
+ },
+ {
+  "stem": "019",
+  "file": "019.png",
+  "label": "WhatsApp Image 2026-09-03 at 11.12.49 AM.jpeg",
+  "mode": "logo",
+  "split": "validation",
+  "width": 508,
+  "height": 700
+ },
+ {
+  "stem": "020",
+  "file": "020.png",
+  "label": "WhatsApp Image 2026-09-03 at 11.12.50 AM (1).jpeg",
+  "mode": "artwork",
+  "split": "train",
+  "width": 562,
+  "height": 700
+ },
+ {
+  "stem": "021",
+  "file": "021.png",
+  "label": "WhatsApp Image 2026-09-03 at 11.12.50 AM (2).jpeg",
+  "mode": "logo",
+  "split": "train",
+  "width": 511,
+  "height": 700
+ },
+ {
+  "stem": "022",
+  "file": "022.png",
+  "label": "WhatsApp Image 2026-09-03 at 11.12.50 AM.jpeg",
+  "mode": "artwork",
+  "split": "train",
+  "width": 565,
+  "height": 700
+ },
+ {
+  "stem": "023",
+  "file": "023.png",
+  "label": "WhatsApp Image 2026-09-03 at 11.12.51 AM (1).jpeg",
+  "mode": "artwork",
+  "split": "validation",
+  "width": 700,
+  "height": 700
+ },
+ {
+  "stem": "024",
+  "file": "024.png",
+  "label": "WhatsApp Image 2026-09-03 at 11.12.51 AM.jpeg",
+  "mode": "artwork",
+  "split": "train",
+  "width": 505,
+  "height": 700
+ },
+ {
+  "stem": "025",
+  "file": "025.png",
+  "label": "WhatsApp Image 2026-09-03 at 11.12.52 AM (1).jpeg",
+  "mode": "artwork",
+  "split": "train",
+  "width": 697,
+  "height": 700
+ },
+ {
+  "stem": "026",
+  "file": "026.png",
+  "label": "WhatsApp Image 2026-09-03 at 11.12.52 AM (2).jpeg",
+  "mode": "logo",
+  "split": "train",
+  "width": 700,
+  "height": 560
+ },
+ {
+  "stem": "027",
+  "file": "027.png",
+  "label": "WhatsApp Image 2026-09-03 at 11.12.52 AM.jpeg",
+  "mode": "artwork",
+  "split": "validation",
+  "width": 594,
+  "height": 700
+ },
+ {
+  "stem": "028",
+  "file": "028.png",
+  "label": "WhatsApp Image 2026-09-03 at 11.14.06 AM.jpeg",
+  "mode": "artwork",
+  "split": "train",
+  "width": 700,
+  "height": 700
+ },
+ {
+  "stem": "029",
+  "file": "029.png",
+  "label": "WhatsApp Image 2026-09-03 at 11.14.07 AM (1).jpeg",
+  "mode": "artwork",
+  "split": "train",
+  "width": 389,
+  "height": 700
+ },
+ {
+  "stem": "030",
+  "file": "030.png",
+  "label": "WhatsApp Image 2026-09-03 at 11.14.07 AM (2).jpeg",
+  "mode": "logo",
+  "split": "train",
+  "width": 651,
+  "height": 700
+ },
+ {
+  "stem": "031",
+  "file": "031.png",
+  "label": "WhatsApp Image 2026-09-03 at 11.14.07 AM.jpeg",
+  "mode": "logo",
+  "split": "validation",
+  "width": 700,
+  "height": 582
+ },
+ {
+  "stem": "032",
+  "file": "032.png",
+  "label": "WhatsApp Image 2026-09-03 at 11.14.08 AM (1).jpeg",
+  "mode": "artwork",
+  "split": "train",
+  "width": 595,
+  "height": 700
+ },
+ {
+  "stem": "033",
+  "file": "033.png",
+  "label": "WhatsApp Image 2026-09-03 at 11.14.08 AM.jpeg",
+  "mode": "artwork",
+  "split": "train",
+  "width": 700,
+  "height": 700
+ },
+ {
+  "stem": "034",
+  "file": "034.png",
+  "label": "WhatsApp Image 2026-09-03 at 11.14.09 AM (1).jpeg",
+  "mode": "logo",
+  "split": "train",
+  "width": 700,
+  "height": 560
+ },
+ {
+  "stem": "035",
+  "file": "035.png",
+  "label": "WhatsApp Image 2026-09-03 at 11.14.09 AM (2).jpeg",
+  "mode": "logo",
+  "split": "validation",
+  "width": 646,
+  "height": 700
+ },
+ {
+  "stem": "036",
+  "file": "036.png",
+  "label": "WhatsApp Image 2026-09-03 at 11.14.09 AM.jpeg",
+  "mode": "artwork",
+  "split": "train",
+  "width": 623,
+  "height": 700
+ },
+ {
+  "stem": "037",
+  "file": "037.png",
+  "label": "WhatsApp Image 2026-09-03 at 11.14.11 AM.jpeg",
+  "mode": "artwork",
+  "split": "train",
+  "width": 700,
+  "height": 700
+ },
+ {
+  "stem": "038",
+  "file": "038.png",
+  "label": "WhatsApp Image 2026-09-03 at 11.14.34 AM (1).jpeg",
+  "mode": "artwork",
+  "split": "train",
+  "width": 606,
+  "height": 700
+ },
+ {
+  "stem": "039",
+  "file": "039.png",
+  "label": "WhatsApp Image 2026-09-03 at 11.14.34 AM.jpeg",
+  "mode": "artwork",
+  "split": "validation",
+  "width": 682,
+  "height": 700
+ },
+ {
+  "stem": "040",
+  "file": "040.png",
+  "label": "WhatsApp Image 2026-09-03 at 11.14.35 AM.jpeg",
+  "mode": "artwork",
+  "split": "train",
+  "width": 649,
+  "height": 700
+ },
+ {
+  "stem": "041",
+  "file": "041.png",
+  "label": "WhatsApp Image 2026-09-03 at 11.15.14 AM (1).jpeg",
+  "mode": "logo",
+  "split": "train",
+  "width": 700,
+  "height": 700
+ },
+ {
+  "stem": "042",
+  "file": "042.png",
+  "label": "WhatsApp Image 2026-09-03 at 11.15.14 AM (2).jpeg",
+  "mode": "artwork",
+  "split": "train",
+  "width": 700,
+  "height": 700
+ },
+ {
+  "stem": "043",
+  "file": "043.png",
+  "label": "WhatsApp Image 2026-09-03 at 11.15.14 AM.jpeg",
+  "mode": "logo",
+  "split": "validation",
+  "width": 645,
+  "height": 700
+ },
+ {
+  "stem": "044",
+  "file": "044.png",
+  "label": "WhatsApp Image 2026-09-03 at 11.15.18 AM.jpeg",
+  "mode": "artwork",
+  "split": "train",
+  "width": 700,
+  "height": 443
+ },
+ {
+  "stem": "045",
+  "file": "045.png",
+  "label": "WhatsApp Image 2026-09-03 at 11.15.47 AM (1).jpeg",
+  "mode": "logo",
+  "split": "train",
+  "width": 700,
+  "height": 533
+ },
+ {
+  "stem": "046",
+  "file": "046.png",
+  "label": "WhatsApp Image 2026-09-03 at 11.15.47 AM.jpeg",
+  "mode": "artwork",
+  "split": "train",
+  "width": 659,
+  "height": 700
+ },
+ {
+  "stem": "047",
+  "file": "047.png",
+  "label": "WhatsApp Image 2026-09-03 at 11.15.48 AM (1).jpeg",
+  "mode": "artwork",
+  "split": "validation",
+  "width": 700,
+  "height": 700
+ },
+ {
+  "stem": "048",
+  "file": "048.png",
+  "label": "WhatsApp Image 2026-09-03 at 11.15.48 AM.jpeg",
+  "mode": "logo",
+  "split": "train",
+  "width": 693,
+  "height": 700
+ },
+ {
+  "stem": "049",
+  "file": "049.png",
+  "label": "WhatsApp Image 2026-09-03 at 11.16.16 AM.jpeg",
+  "mode": "logo",
+  "split": "train",
+  "width": 700,
+  "height": 584
+ },
+ {
+  "stem": "050",
+  "file": "050.png",
+  "label": "WhatsApp Image 2026-09-03 at 11.16.49 AM.jpeg",
+  "mode": "artwork",
+  "split": "train",
+  "width": 700,
+  "height": 700
+ },
+ {
+  "stem": "051",
+  "file": "051.png",
+  "label": "WhatsApp Image 2026-09-03 at 11.16.50 AM (1).jpeg",
+  "mode": "artwork",
+  "split": "validation",
+  "width": 466,
+  "height": 700
+ },
+ {
+  "stem": "052",
+  "file": "052.png",
+  "label": "WhatsApp Image 2026-09-03 at 11.16.50 AM (2).jpeg",
+  "mode": "logo",
+  "split": "train",
+  "width": 596,
+  "height": 700
+ },
+ {
+  "stem": "053",
+  "file": "053.png",
+  "label": "WhatsApp Image 2026-09-03 at 11.16.50 AM.jpeg",
+  "mode": "artwork",
+  "split": "train",
+  "width": 700,
+  "height": 700
+ },
+ {
+  "stem": "054",
+  "file": "054.png",
+  "label": "WhatsApp Image 2026-09-03 at 11.16.56 AM.jpeg",
+  "mode": "artwork",
+  "split": "train",
+  "width": 467,
+  "height": 700
+ },
+ {
+  "stem": "055",
+  "file": "055.png",
+  "label": "WhatsApp Image 2026-09-03 at 11.17.11 AM.jpeg",
+  "mode": "logo",
+  "split": "validation",
+  "width": 700,
+  "height": 471
+ },
+ {
+  "stem": "056",
+  "file": "056.png",
+  "label": "WhatsApp Image 2026-09-03 at 11.17.39 AM.jpeg",
+  "mode": "logo",
+  "split": "train",
+  "width": 393,
+  "height": 700
+ },
+ {
+  "stem": "057",
+  "file": "057.png",
+  "label": "WhatsApp Image 2026-09-03 at 11.17.51 AM.jpeg",
+  "mode": "artwork",
+  "split": "train",
+  "width": 700,
+  "height": 700
+ },
+ {
+  "stem": "058",
+  "file": "058.png",
+  "label": "WhatsApp Image 2026-09-03 at 11.19.18 AM.jpeg",
+  "mode": "logo",
+  "split": "train",
+  "width": 528,
+  "height": 700
+ },
+ {
+  "stem": "059",
+  "file": "059.png",
+  "label": "WhatsApp Image 2026-09-03 at 11.19.25 AM.jpeg",
+  "mode": "artwork",
+  "split": "validation",
+  "width": 495,
+  "height": 700
+ },
+ {
+  "stem": "060",
+  "file": "060.png",
+  "label": "WhatsApp Image 2026-09-03 at 11.19.33 AM.jpeg",
+  "mode": "artwork",
+  "split": "train",
+  "width": 495,
+  "height": 700
+ },
+ {
+  "stem": "061",
+  "file": "061.png",
+  "label": "WhatsApp Image 2026-09-03 at 11.19.39 AM.jpeg",
+  "mode": "artwork",
+  "split": "train",
+  "width": 700,
+  "height": 700
+ },
+ {
+  "stem": "062",
+  "file": "062.png",
+  "label": "WhatsApp Image 2026-09-03 at 11.19.56 AM.jpeg",
+  "mode": "artwork",
+  "split": "train",
+  "width": 700,
+  "height": 596
+ }
+]

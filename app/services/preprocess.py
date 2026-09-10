@@ -177,7 +177,7 @@ _INK_SOLID_FLOOR = 0.001
 _DETECT_MAX_EDGE = 768
 
 # Above this many inks the artwork is not flat, and is left alone.
-_FLAT_MAX_INKS = 16
+_FLAT_MAX_INKS = 20
 
 # How far the average pixel may sit from the nearest ink. This is what tells a
 # handful of inks apart from a handful of *bands cut through a gradient*,

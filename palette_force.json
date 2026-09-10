@@ -1,0 +1,443 @@
+[
+  {
+    "file": "000",
+    "base": 60.69353184701281,
+    "base_inks": 8,
+    "forced": 60.69353184701281,
+    "forced_inks": 8
+  },
+  {
+    "file": "001",
+    "base": 35.962919203853495,
+    "base_inks": 0,
+    "forced": 23.2038359413266,
+    "forced_inks": 11
+  },
+  {
+    "file": "002",
+    "base": 36.227544910179645,
+    "base_inks": 0,
+    "forced": 32.081710632669555,
+    "forced_inks": 9
+  },
+  {
+    "file": "003",
+    "base": 38.82432694170056,
+    "base_inks": 0,
+    "forced": 31.697640425976196,
+    "forced_inks": 7
+  },
+  {
+    "file": "004",
+    "base": 14.300907100406631,
+    "base_inks": 0,
+    "forced": 17.60790502984972,
+    "forced_inks": 6
+  },
+  {
+    "file": "005",
+    "base": 64.79042998764577,
+    "base_inks": 6,
+    "forced": 64.79042998764577,
+    "forced_inks": 6
+  },
+  {
+    "file": "006",
+    "base": 55.340415258329315,
+    "base_inks": 0,
+    "forced": 63.14203984507506,
+    "forced_inks": 7
+  },
+  {
+    "file": "007",
+    "base": 47.982363118825695,
+    "base_inks": 0,
+    "forced": 46.018569087930096,
+    "forced_inks": 6
+  },
+  {
+    "file": "008",
+    "base": 49.84351955106299,
+    "base_inks": 0,
+    "forced": 45.38016555338937,
+    "forced_inks": 11
+  },
+  {
+    "file": "009",
+    "base": 16.22859717632923,
+    "base_inks": 0,
+    "forced": 17.918575015752698,
+    "forced_inks": 14
+  },
+  {
+    "file": "010",
+    "base": 26.38769933520943,
+    "base_inks": 0,
+    "forced": 34.05044376834033,
+    "forced_inks": 11
+  },
+  {
+    "file": "011",
+    "base": 36.49421861962093,
+    "base_inks": 0,
+    "forced": 35.23408144612573,
+    "forced_inks": 12
+  },
+  {
+    "file": "012",
+    "base": 35.64959040036922,
+    "base_inks": 0,
+    "forced": 36.092196212452144,
+    "forced_inks": 11
+  },
+  {
+    "file": "013",
+    "base": 38.07020989037646,
+    "base_inks": 0,
+    "forced": 41.59764627511935,
+    "forced_inks": 17
+  },
+  {
+    "file": "014",
+    "base": 17.693834098579106,
+    "base_inks": 10,
+    "forced": 17.693834098579106,
+    "forced_inks": 10
+  },
+  {
+    "file": "015",
+    "base": 43.07877667563419,
+    "base_inks": 0,
+    "forced": 50.52152744460437,
+    "forced_inks": 22
+  },
+  {
+    "file": "016",
+    "base": 40.15269409307955,
+    "base_inks": 0,
+    "forced": 28.843443675425135,
+    "forced_inks": 24
+  },
+  {
+    "file": "017",
+    "base": 77.28799616096525,
+    "base_inks": 5,
+    "forced": 77.28799616096525,
+    "forced_inks": 5
+  },
+  {
+    "file": "018",
+    "base": 62.92376102158711,
+    "base_inks": 0,
+    "forced": 60.274115197779324,
+    "forced_inks": 10
+  },
+  {
+    "file": "019",
+    "base": 70.72016821447346,
+    "base_inks": 7,
+    "forced": 70.72016821447346,
+    "forced_inks": 7
+  },
+  {
+    "file": "020",
+    "base": 49.26337713253086,
+    "base_inks": 0,
+    "forced": 46.46849593495935,
+    "forced_inks": 15
+  },
+  {
+    "file": "021",
+    "base": 38.413992635455024,
+    "base_inks": 0,
+    "forced": 49.103846153846156,
+    "forced_inks": 19
+  },
+  {
+    "file": "022",
+    "base": 38.983112733911454,
+    "base_inks": 0,
+    "forced": 26.584889423142595,
+    "forced_inks": 24
+  },
+  {
+    "file": "023",
+    "base": 47.58352028660371,
+    "base_inks": 0,
+    "forced": 48.928297459500925,
+    "forced_inks": 13
+  },
+  {
+    "file": "024",
+    "base": 45.837868431364015,
+    "base_inks": 0,
+    "forced": 33.29643338983637,
+    "forced_inks": 24
+  },
+  {
+    "file": "025",
+    "base": 70.11339569361101,
+    "base_inks": 0,
+    "forced": 74.0827426329633,
+    "forced_inks": 13
+  },
+  {
+    "file": "026",
+    "base": 37.78600762687005,
+    "base_inks": 0,
+    "forced": 36.0766113217414,
+    "forced_inks": 24
+  },
+  {
+    "file": "027",
+    "base": 64.63346390598768,
+    "base_inks": 0,
+    "forced": 64.91189035243859,
+    "forced_inks": 11
+  },
+  {
+    "file": "028",
+    "base": 54.41508016032064,
+    "base_inks": 8,
+    "forced": 54.41508016032064,
+    "forced_inks": 8
+  },
+  {
+    "file": "029",
+    "base": 27.89267542735825,
+    "base_inks": 0,
+    "forced": 37.88034971175505,
+    "forced_inks": 24
+  },
+  {
+    "file": "030",
+    "base": 39.459820434814866,
+    "base_inks": 0,
+    "forced": 50.94167123788627,
+    "forced_inks": 24
+  },
+  {
+    "file": "031",
+    "base": 72.26849583537481,
+    "base_inks": 2,
+    "forced": 72.26849583537481,
+    "forced_inks": 2
+  },
+  {
+    "file": "032",
+    "base": 34.69822014517251,
+    "base_inks": 0,
+    "forced": 45.53074310064119,
+    "forced_inks": 23
+  },
+  {
+    "file": "033",
+    "base": 52.19201713164,
+    "base_inks": 0,
+    "forced": 55.8738542204872,
+    "forced_inks": 12
+  },
+  {
+    "file": "034",
+    "base": 52.67530634503112,
+    "base_inks": 11,
+    "forced": 52.67530634503112,
+    "forced_inks": 11
+  },
+  {
+    "file": "035",
+    "base": 29.56779462248662,
+    "base_inks": 0,
+    "forced": 25.615371670720698,
+    "forced_inks": 15
+  },
+  {
+    "file": "036",
+    "base": 51.96912604837729,
+    "base_inks": 0,
+    "forced": 42.52038238128728,
+    "forced_inks": 22
+  },
+  {
+    "file": "037",
+    "base": 33.92857142857143,
+    "base_inks": 0,
+    "forced": 40.105770687130814,
+    "forced_inks": 16
+  },
+  {
+    "file": "038",
+    "base": 53.089393237610004,
+    "base_inks": 0,
+    "forced": 46.26086956521739,
+    "forced_inks": 21
+  },
+  {
+    "file": "039",
+    "base": 52.92526076386166,
+    "base_inks": 0,
+    "forced": 64.71101327075243,
+    "forced_inks": 12
+  },
+  {
+    "file": "040",
+    "base": 55.02770083102493,
+    "base_inks": 0,
+    "forced": 50.21461024685413,
+    "forced_inks": 18
+  },
+  {
+    "file": "041",
+    "base": 73.63779527559056,
+    "base_inks": 5,
+    "forced": 73.63779527559056,
+    "forced_inks": 5
+  },
+  {
+    "file": "042",
+    "base": 46.173590994096294,
+    "base_inks": 0,
+    "forced": 35.14988518763172,
+    "forced_inks": 23
+  },
+  {
+    "file": "043",
+    "base": 34.85485601600789,
+    "base_inks": 0,
+    "forced": 33.37844327061597,
+    "forced_inks": 18
+  },
+  {
+    "file": "044",
+    "base": 51.94539249146758,
+    "base_inks": 12,
+    "forced": 51.94539249146758,
+    "forced_inks": 12
+  },
+  {
+    "file": "045",
+    "base": 44.89405116936116,
+    "base_inks": 0,
+    "forced": 39.01052935237271,
+    "forced_inks": 24
+  },
+  {
+    "file": "046",
+    "base": 50.978978978978986,
+    "base_inks": 0,
+    "forced": 48.57299336700542,
+    "forced_inks": 18
+  },
+  {
+    "file": "047",
+    "base": 33.67929423975091,
+    "base_inks": 0,
+    "forced": 51.54411358488481,
+    "forced_inks": 17
+  },
+  {
+    "file": "048",
+    "base": 46.953557733276526,
+    "base_inks": 0,
+    "forced": 52.384823061514794,
+    "forced_inks": 19
+  },
+  {
+    "file": "049",
+    "base": 58.32886026122741,
+    "base_inks": 7,
+    "forced": 58.32886026122741,
+    "forced_inks": 7
+  },
+  {
+    "file": "050",
+    "base": 19.875872052731278,
+    "base_inks": 0,
+    "forced": 20.630762893566683,
+    "forced_inks": 18
+  },
+  {
+    "file": "051",
+    "base": 21.910795035757687,
+    "base_inks": 0,
+    "forced": 17.699273559558165,
+    "forced_inks": 22
+  },
+  {
+    "file": "052",
+    "base": 25.248675281212236,
+    "base_inks": 0,
+    "forced": 29.912901469787695,
+    "forced_inks": 18
+  },
+  {
+    "file": "053",
+    "base": 24.51009858138976,
+    "base_inks": 0,
+    "forced": 19.521762087953533,
+    "forced_inks": 10
+  },
+  {
+    "file": "054",
+    "base": 33.86868994544901,
+    "base_inks": 0,
+    "forced": 30.13388557118089,
+    "forced_inks": 12
+  },
+  {
+    "file": "055",
+    "base": 56.38769021121962,
+    "base_inks": 4,
+    "forced": 56.38769021121962,
+    "forced_inks": 4
+  },
+  {
+    "file": "056",
+    "base": 48.732216440581105,
+    "base_inks": 10,
+    "forced": 48.732216440581105,
+    "forced_inks": 10
+  },
+  {
+    "file": "057",
+    "base": 41.38494394020288,
+    "base_inks": 0,
+    "forced": 39.22444322027229,
+    "forced_inks": 24
+  },
+  {
+    "file": "058",
+    "base": 39.84426886522387,
+    "base_inks": 0,
+    "forced": 38.14023525303887,
+    "forced_inks": 9
+  },
+  {
+    "file": "059",
+    "base": 45.50525800007538,
+    "base_inks": 0,
+    "forced": 33.58337240193781,
+    "forced_inks": 9
+  },
+  {
+    "file": "060",
+    "base": 32.373855555807985,
+    "base_inks": 0,
+    "forced": 39.28175123575103,
+    "forced_inks": 11
+  },
+  {
+    "file": "061",
+    "base": 30.2237018585936,
+    "base_inks": 0,
+    "forced": 19.33118813897601,
+    "forced_inks": 18
+  },
+  {
+    "file": "062",
+    "base": 14.760969384563413,
+    "base_inks": 0,
+    "forced": 18.77471588428288,
+    "forced_inks": 8
+  }
+]

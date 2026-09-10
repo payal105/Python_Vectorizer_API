@@ -6,12 +6,15 @@ __pycache__/
 .ruff_cache/
 *.egg-info/
 
-# generated conversion output
-samples/out/
-samples/*.pdf
-samples/*.eps
-samples/*.svg
+# # generated conversion output
+# samples/out/
+# samples/*.pdf
+# samples/*.eps
+# samples/*.svg
 
-# tuning tool output
-tools/out/
-corpus/
+# # tuning tool output
+# tools/out/
+# corpus/
+
+# # triage report output
+# triage/

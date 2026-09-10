@@ -1,0 +1,38 @@
+rendering 63 references (once)...
+corpus 63 · searching on 24 · 3 workers
+
+shipped settings, all 63: match  43.61%  colour  8.199  bumps  0.67x
+
+round 1
+    _FLAT_MAX_INKS = 20             match  40.77%  colour  8.474  bumps  0.51x   <-- better
+    _FLAT_MAX_INKS = 24             match  39.86%  colour  8.606  bumps  0.51x
+    _FLAT_MAX_INKS = 32             match  39.86%  colour  8.606  bumps  0.51x
+    _FLAT_MAX_INKS = 48             match  39.86%  colour  8.606  bumps  0.51x
+  KEEP _FLAT_MAX_INKS = 20   match now 40.77%
+    _FLAT_MAX_RESIDUAL = 6.5            match  39.90%  colour  8.529  bumps  0.57x
+    _FLAT_MAX_RESIDUAL = 8.0            match  40.02%  colour  8.130  bumps  0.60x
+    _FLAT_MAX_RESIDUAL = 10.0           match  40.27%  colour  7.597  bumps  0.75x
+    _FLAT_MAX_RESIDUAL = 14.0           match  39.91%  colour  7.252  bumps  0.92x
+    _MIN_INK_SEPARATION = 20.0           match  40.48%  colour 11.533  bumps  0.50x
+    _MIN_INK_SEPARATION = 25.0           match  39.90%  colour  8.681  bumps  0.51x
+    _MIN_INK_SEPARATION = 36.0           match  40.89%  colour  8.371  bumps  0.48x
+    _INK_SOLID_FLOOR = 0.0002         match  39.43%  colour 11.119  bumps  0.53x
+    _INK_SOLID_FLOOR = 0.0005         match  40.62%  colour  8.523  bumps  0.52x
+    _INK_SOLID_FLOOR = 0.002          match  39.45%  colour  8.533  bumps  0.49x
+    _BLEND_TOLERANCE = 8.0            match  40.78%  colour  8.470  bumps  0.52x
+    _BLEND_TOLERANCE = 16.0           match  40.72%  colour  8.473  bumps  0.51x
+    _BLEND_TOLERANCE = 20.0           match  40.78%  colour  8.470  bumps  0.51x
+    _INK_MIN_SHARE = 0.0002         match  40.77%  colour  8.474  bumps  0.51x
+    _INK_MIN_SHARE = 0.001          match  40.73%  colour  8.473  bumps  0.51x
+    processing.denoise = none           match  43.09%  colour  8.004  bumps  0.74x   <-- better
+    processing.denoise = medium         match  35.09%  colour  9.740  bumps  0.47x
+  KEEP processing.denoise = none   match now 43.09%
+    processing.detail = low            match  30.08%  colour  8.701  bumps  0.92x
+    processing.detail = maximum        match  28.96%  colour  8.877  bumps  1.04x
+    processing.color_merge = 0.0            match  43.37%  colour  7.941  bumps  0.74x   <-- better
+    processing.color_merge = 8.0            match  43.27%  colour  7.958  bumps  0.74x
+    processing.color_merge = 24.0           match  42.68%  colour  8.035  bumps  0.74x
+    processing.color_merge = 40.0           match  42.23%  colour  8.316  bumps  0.74x
+  KEEP processing.color_merge = 0.0   match now 43.37%
+
+[killed]

@@ -1,0 +1,11 @@
+2026-09-10T10:43:00 INFO     [-] vector_api: Python Vector API v1.0.0 ready (env=development, workers=4, auth=on)
+2026-09-10T10:43:20 INFO     [ae0cf8dabd84] vector_api.adaptive: adaptive kept default (distance 1.1561 vs 1.1561 for the defaults, 3 candidates)
+2026-09-10T10:43:21 INFO     [ae0cf8dabd84] vector_api.pipeline: vectorized 320x240 PNG -> svg (4 paths, 1521 ms)
+2026-09-10T10:43:21 INFO     [ae0cf8dabd84] vector_api.http: POST /api/v1/vectorize -> 200 in 1530.9ms
+INFO:     127.0.0.1:58409 - "POST /api/v1/vectorize HTTP/1.1" 200 OK
+2026-09-10T10:43:45 INFO     [94887dcbd58e] vector_api.adaptive: adaptive kept default (distance 0.2026 vs 0.2026 for the defaults, 3 candidates)
+2026-09-10T10:43:45 INFO     [94887dcbd58e] vector_api.pipeline: vectorized 1600x1330 JPEG -> svg (8 paths, 24279 ms)
+2026-09-10T10:43:45 INFO     [94887dcbd58e] vector_api.http: POST /api/v1/vectorize -> 200 in 24288.7ms
+INFO:     127.0.0.1:58413 - "POST /api/v1/vectorize HTTP/1.1" 200 OK
+2026-09-10T10:59:42 INFO     [0493a7eccd65] vector_api.http: GET /api/v1/health -> 200 in 5.8ms
+INFO:     127.0.0.1:59413 - "GET /api/v1/health HTTP/1.1" 200 OK

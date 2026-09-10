@@ -1,0 +1,1693 @@
+[
+  {
+    "file": "014.png",
+    "mode": "artwork",
+    "inks": 12,
+    "shapes": 2151,
+    "kb": 1649.0,
+    "leak": 0,
+    "colour": 16.847,
+    "detail": 13.41,
+    "teacher_nodes": 8570,
+    "teacher_colour": 2.399,
+    "teacher_detail": 66.97,
+    "detail_gap": 53.56,
+    "colour_gap": 14.448,
+    "nodes": 51899,
+    "shape_ratio": 6.06,
+    "labels": [
+      "over-traced",
+      "palette off"
+    ],
+    "worst_box": [
+      222,
+      0,
+      317,
+      116
+    ]
+  },
+  {
+    "file": "010.png",
+    "mode": "artwork",
+    "inks": 0,
+    "shapes": 356,
+    "kb": 312.6,
+    "leak": 0,
+    "colour": 13.851,
+    "detail": 24.85,
+    "teacher_nodes": 55524,
+    "teacher_colour": 5.968,
+    "teacher_detail": 74.64,
+    "detail_gap": 49.79,
+    "colour_gap": 7.883,
+    "nodes": 9410,
+    "shape_ratio": 0.17,
+    "labels": [
+      "flattened",
+      "palette off"
+    ],
+    "worst_box": [
+      180,
+      116,
+      275,
+      232
+    ]
+  },
+  {
+    "file": "047.png",
+    "mode": "artwork",
+    "inks": 0,
+    "shapes": 194,
+    "kb": 157.9,
+    "leak": 0,
+    "colour": 5.774,
+    "detail": 34.96,
+    "teacher_nodes": 8014,
+    "teacher_colour": 1.074,
+    "teacher_detail": 81.02,
+    "detail_gap": 46.06,
+    "colour_gap": 4.7,
+    "nodes": 3861,
+    "shape_ratio": 0.48,
+    "labels": [
+      "flattened",
+      "palette off"
+    ],
+    "worst_box": [
+      232,
+      232,
+      348,
+      348
+    ]
+  },
+  {
+    "file": "032.png",
+    "mode": "artwork",
+    "inks": 0,
+    "shapes": 462,
+    "kb": 374.7,
+    "leak": 0,
+    "colour": 6.444,
+    "detail": 33.24,
+    "teacher_nodes": 22350,
+    "teacher_colour": 3.24,
+    "teacher_detail": 78.53,
+    "detail_gap": 45.29,
+    "colour_gap": 3.204,
+    "nodes": 10934,
+    "shape_ratio": 0.49,
+    "labels": [
+      "flattened",
+      "palette off"
+    ],
+    "worst_box": [
+      198,
+      464,
+      297,
+      580
+    ]
+  },
+  {
+    "file": "029.png",
+    "mode": "artwork",
+    "inks": 0,
+    "shapes": 449,
+    "kb": 294.2,
+    "leak": 0,
+    "colour": 9.35,
+    "detail": 28.62,
+    "teacher_nodes": 19048,
+    "teacher_colour": 2.917,
+    "teacher_detail": 70.93,
+    "detail_gap": 42.31,
+    "colour_gap": 6.433,
+    "nodes": 7407,
+    "shape_ratio": 0.39,
+    "labels": [
+      "flattened",
+      "palette off"
+    ],
+    "worst_box": [
+      176,
+      348,
+      272,
+      464
+    ]
+  },
+  {
+    "file": "021.png",
+    "mode": "artwork",
+    "inks": 0,
+    "shapes": 333,
+    "kb": 228.6,
+    "leak": 0,
+    "colour": 3.913,
+    "detail": 39.57,
+    "teacher_nodes": 10646,
+    "teacher_colour": 1.484,
+    "teacher_detail": 73.32,
+    "detail_gap": 33.75,
+    "colour_gap": 2.429,
+    "nodes": 6895,
+    "shape_ratio": 0.65,
+    "labels": [
+      "flattened",
+      "palette off"
+    ],
+    "worst_box": [
+      250,
+      464,
+      345,
+      580
+    ]
+  },
+  {
+    "file": "018.png",
+    "mode": "artwork",
+    "inks": 0,
+    "shapes": 206,
+    "kb": 229.0,
+    "leak": 0,
+    "colour": 8.426,
+    "detail": 44.94,
+    "teacher_nodes": 6684,
+    "teacher_colour": 2.716,
+    "teacher_detail": 76.09,
+    "detail_gap": 31.15,
+    "colour_gap": 5.71,
+    "nodes": 5494,
+    "shape_ratio": 0.82,
+    "labels": [
+      "detail short",
+      "palette off"
+    ],
+    "worst_box": [
+      464,
+      464,
+      580,
+      580
+    ]
+  },
+  {
+    "file": "056.png",
+    "mode": "artwork",
+    "inks": 10,
+    "shapes": 396,
+    "kb": 276.8,
+    "leak": 0,
+    "colour": 6.589,
+    "detail": 51.61,
+    "teacher_nodes": 12771,
+    "teacher_colour": 2.479,
+    "teacher_detail": 81.77,
+    "detail_gap": 30.16,
+    "colour_gap": 4.11,
+    "nodes": 8302,
+    "shape_ratio": 0.65,
+    "labels": [
+      "flattened",
+      "palette off"
+    ],
+    "worst_box": [
+      180,
+      116,
+      275,
+      232
+    ]
+  },
+  {
+    "file": "055.png",
+    "mode": "artwork",
+    "inks": 4,
+    "shapes": 46,
+    "kb": 61.3,
+    "leak": 0,
+    "colour": 1.79,
+    "detail": 54.39,
+    "teacher_nodes": 1802,
+    "teacher_colour": 0.61,
+    "teacher_detail": 84.01,
+    "detail_gap": 29.62,
+    "colour_gap": 1.18,
+    "nodes": 1789,
+    "shape_ratio": 0.99,
+    "labels": [
+      "detail short",
+      "palette off"
+    ],
+    "worst_box": [
+      348,
+      69,
+      464,
+      165
+    ]
+  },
+  {
+    "file": "013.png",
+    "mode": "artwork",
+    "inks": 0,
+    "shapes": 899,
+    "kb": 673.7,
+    "leak": 0,
+    "colour": 14.729,
+    "detail": 36.86,
+    "teacher_nodes": 72903,
+    "teacher_colour": 6.727,
+    "teacher_detail": 66.4,
+    "detail_gap": 29.54,
+    "colour_gap": 8.002,
+    "nodes": 20299,
+    "shape_ratio": 0.28,
+    "labels": [
+      "flattened",
+      "palette off"
+    ],
+    "worst_box": [
+      299,
+      580,
+      394,
+      696
+    ]
+  },
+  {
+    "file": "037.png",
+    "mode": "artwork",
+    "inks": 0,
+    "shapes": 388,
+    "kb": 418.1,
+    "leak": 0,
+    "colour": 10.883,
+    "detail": 23.7,
+    "teacher_nodes": 32970,
+    "teacher_colour": 4.777,
+    "teacher_detail": 52.48,
+    "detail_gap": 28.78,
+    "colour_gap": 6.106,
+    "nodes": 12014,
+    "shape_ratio": 0.36,
+    "labels": [
+      "flattened",
+      "palette off"
+    ],
+    "worst_box": [
+      232,
+      232,
+      348,
+      348
+    ]
+  },
+  {
+    "file": "049.png",
+    "mode": "artwork",
+    "inks": 8,
+    "shapes": 113,
+    "kb": 108.6,
+    "leak": 0,
+    "colour": 2.632,
+    "detail": 55.69,
+    "teacher_nodes": 3234,
+    "teacher_colour": 1.094,
+    "teacher_detail": 82.95,
+    "detail_gap": 27.26,
+    "colour_gap": 1.538,
+    "nodes": 2962,
+    "shape_ratio": 0.92,
+    "labels": [
+      "detail short",
+      "palette off"
+    ],
+    "worst_box": [
+      232,
+      291,
+      348,
+      388
+    ]
+  },
+  {
+    "file": "048.png",
+    "mode": "artwork",
+    "inks": 0,
+    "shapes": 146,
+    "kb": 119.3,
+    "leak": 0,
+    "colour": 3.203,
+    "detail": 52.06,
+    "teacher_nodes": 4857,
+    "teacher_colour": 2.206,
+    "teacher_detail": 77.79,
+    "detail_gap": 25.73,
+    "colour_gap": 0.997,
+    "nodes": 3387,
+    "shape_ratio": 0.7,
+    "labels": [
+      "flattened",
+      "palette off"
+    ],
+    "worst_box": [
+      460,
+      348,
+      575,
+      464
+    ]
+  },
+  {
+    "file": "028.png",
+    "mode": "artwork",
+    "inks": 8,
+    "shapes": 309,
+    "kb": 314.1,
+    "leak": 0,
+    "colour": 2.925,
+    "detail": 55.56,
+    "teacher_nodes": 15986,
+    "teacher_colour": 1.312,
+    "teacher_detail": 81.16,
+    "detail_gap": 25.6,
+    "colour_gap": 1.613,
+    "nodes": 8639,
+    "shape_ratio": 0.54,
+    "labels": [
+      "flattened",
+      "palette off"
+    ],
+    "worst_box": [
+      348,
+      464,
+      464,
+      580
+    ]
+  },
+  {
+    "file": "046.png",
+    "mode": "artwork",
+    "inks": 0,
+    "shapes": 214,
+    "kb": 181.4,
+    "leak": 0,
+    "colour": 3.955,
+    "detail": 54.37,
+    "teacher_nodes": 7897,
+    "teacher_colour": 1.159,
+    "teacher_detail": 79.95,
+    "detail_gap": 25.58,
+    "colour_gap": 2.796,
+    "nodes": 5226,
+    "shape_ratio": 0.66,
+    "labels": [
+      "flattened",
+      "palette off"
+    ],
+    "worst_box": [
+      327,
+      232,
+      436,
+      348
+    ]
+  },
+  {
+    "file": "026.png",
+    "mode": "artwork",
+    "inks": 0,
+    "shapes": 507,
+    "kb": 296.0,
+    "leak": 0,
+    "colour": 6.144,
+    "detail": 39.32,
+    "teacher_nodes": 6367,
+    "teacher_colour": 2.347,
+    "teacher_detail": 64.62,
+    "detail_gap": 25.3,
+    "colour_gap": 3.797,
+    "nodes": 8667,
+    "shape_ratio": 1.36,
+    "labels": [
+      "over-traced",
+      "palette off"
+    ],
+    "worst_box": [
+      348,
+      92,
+      464,
+      187
+    ]
+  },
+  {
+    "file": "045.png",
+    "mode": "artwork",
+    "inks": 0,
+    "shapes": 224,
+    "kb": 176.6,
+    "leak": 0,
+    "colour": 4.941,
+    "detail": 48.71,
+    "teacher_nodes": 14111,
+    "teacher_colour": 2.031,
+    "teacher_detail": 73.75,
+    "detail_gap": 25.04,
+    "colour_gap": 2.91,
+    "nodes": 5047,
+    "shape_ratio": 0.36,
+    "labels": [
+      "flattened",
+      "palette off"
+    ],
+    "worst_box": [
+      348,
+      172,
+      464,
+      268
+    ]
+  },
+  {
+    "file": "042.png",
+    "mode": "artwork",
+    "inks": 0,
+    "shapes": 381,
+    "kb": 339.8,
+    "leak": 0,
+    "colour": 6.37,
+    "detail": 47.03,
+    "teacher_nodes": 16004,
+    "teacher_colour": 3.117,
+    "teacher_detail": 71.6,
+    "detail_gap": 24.57,
+    "colour_gap": 3.253,
+    "nodes": 9881,
+    "shape_ratio": 0.62,
+    "labels": [
+      "flattened",
+      "palette off"
+    ],
+    "worst_box": [
+      464,
+      348,
+      580,
+      464
+    ]
+  },
+  {
+    "file": "044.png",
+    "mode": "artwork",
+    "inks": 12,
+    "shapes": 437,
+    "kb": 338.4,
+    "leak": 0,
+    "colour": 8.286,
+    "detail": 56.13,
+    "teacher_nodes": 19429,
+    "teacher_colour": 3.65,
+    "teacher_detail": 80.65,
+    "detail_gap": 24.52,
+    "colour_gap": 4.636,
+    "nodes": 10006,
+    "shape_ratio": 0.52,
+    "labels": [
+      "flattened",
+      "palette off"
+    ],
+    "worst_box": [
+      580,
+      62,
+      696,
+      157
+    ]
+  },
+  {
+    "file": "009.png",
+    "mode": "artwork",
+    "inks": 0,
+    "shapes": 256,
+    "kb": 216.4,
+    "leak": 0,
+    "colour": 19.301,
+    "detail": 11.07,
+    "teacher_nodes": 44133,
+    "teacher_colour": 7.972,
+    "teacher_detail": 35.34,
+    "detail_gap": 24.27,
+    "colour_gap": 11.329,
+    "nodes": 5900,
+    "shape_ratio": 0.13,
+    "labels": [
+      "flattened",
+      "palette off"
+    ],
+    "worst_box": [
+      0,
+      464,
+      91,
+      580
+    ]
+  },
+  {
+    "file": "015.png",
+    "mode": "artwork",
+    "inks": 0,
+    "shapes": 480,
+    "kb": 375.4,
+    "leak": 0,
+    "colour": 8.932,
+    "detail": 48.51,
+    "teacher_nodes": 18017,
+    "teacher_colour": 4.633,
+    "teacher_detail": 72.63,
+    "detail_gap": 24.12,
+    "colour_gap": 4.299,
+    "nodes": 10904,
+    "shape_ratio": 0.61,
+    "labels": [
+      "flattened",
+      "palette off"
+    ],
+    "worst_box": [
+      116,
+      299,
+      232,
+      394
+    ]
+  },
+  {
+    "file": "006.png",
+    "mode": "artwork",
+    "inks": 0,
+    "shapes": 238,
+    "kb": 215.1,
+    "leak": 0,
+    "colour": 5.101,
+    "detail": 50.71,
+    "teacher_nodes": 10029,
+    "teacher_colour": 2.816,
+    "teacher_detail": 74.72,
+    "detail_gap": 24.01,
+    "colour_gap": 2.285,
+    "nodes": 6308,
+    "shape_ratio": 0.63,
+    "labels": [
+      "flattened",
+      "palette off"
+    ],
+    "worst_box": [
+      371,
+      232,
+      466,
+      348
+    ]
+  },
+  {
+    "file": "040.png",
+    "mode": "artwork",
+    "inks": 0,
+    "shapes": 217,
+    "kb": 232.4,
+    "leak": 0,
+    "colour": 6.976,
+    "detail": 47.28,
+    "teacher_nodes": 16148,
+    "teacher_colour": 2.632,
+    "teacher_detail": 71.24,
+    "detail_gap": 23.96,
+    "colour_gap": 4.344,
+    "nodes": 7028,
+    "shape_ratio": 0.44,
+    "labels": [
+      "flattened",
+      "palette off"
+    ],
+    "worst_box": [
+      108,
+      232,
+      216,
+      348
+    ]
+  },
+  {
+    "file": "057.png",
+    "mode": "artwork",
+    "inks": 0,
+    "shapes": 955,
+    "kb": 756.5,
+    "leak": 0,
+    "colour": 13.668,
+    "detail": 27.76,
+    "teacher_nodes": 110894,
+    "teacher_colour": 7.782,
+    "teacher_detail": 51.49,
+    "detail_gap": 23.73,
+    "colour_gap": 5.886,
+    "nodes": 22894,
+    "shape_ratio": 0.21,
+    "labels": [
+      "flattened",
+      "palette off"
+    ],
+    "worst_box": [
+      232,
+      348,
+      348,
+      464
+    ]
+  },
+  {
+    "file": "030.png",
+    "mode": "artwork",
+    "inks": 0,
+    "shapes": 338,
+    "kb": 209.8,
+    "leak": 0,
+    "colour": 6.151,
+    "detail": 40.18,
+    "teacher_nodes": 9073,
+    "teacher_colour": 1.706,
+    "teacher_detail": 63.53,
+    "detail_gap": 23.35,
+    "colour_gap": 4.445,
+    "nodes": 6125,
+    "shape_ratio": 0.68,
+    "labels": [
+      "flattened",
+      "palette off"
+    ],
+    "worst_box": [
+      324,
+      464,
+      432,
+      580
+    ]
+  },
+  {
+    "file": "012.png",
+    "mode": "artwork",
+    "inks": 0,
+    "shapes": 264,
+    "kb": 214.7,
+    "leak": 0,
+    "colour": 10.036,
+    "detail": 31.95,
+    "teacher_nodes": 18324,
+    "teacher_colour": 4.16,
+    "teacher_detail": 54.7,
+    "detail_gap": 22.75,
+    "colour_gap": 5.876,
+    "nodes": 6286,
+    "shape_ratio": 0.34,
+    "labels": [
+      "flattened",
+      "palette off"
+    ],
+    "worst_box": [
+      0,
+      348,
+      86,
+      464
+    ]
+  },
+  {
+    "file": "054.png",
+    "mode": "artwork",
+    "inks": 0,
+    "shapes": 261,
+    "kb": 236.7,
+    "leak": 0,
+    "colour": 10.839,
+    "detail": 35.71,
+    "teacher_nodes": 24614,
+    "teacher_colour": 6.495,
+    "teacher_detail": 58.1,
+    "detail_gap": 22.39,
+    "colour_gap": 4.344,
+    "nodes": 7016,
+    "shape_ratio": 0.29,
+    "labels": [
+      "flattened",
+      "palette off"
+    ],
+    "worst_box": [
+      145,
+      232,
+      240,
+      348
+    ]
+  },
+  {
+    "file": "027.png",
+    "mode": "artwork",
+    "inks": 0,
+    "shapes": 86,
+    "kb": 163.1,
+    "leak": 0,
+    "colour": 4.59,
+    "detail": 59.25,
+    "teacher_nodes": 5294,
+    "teacher_colour": 1.788,
+    "teacher_detail": 81.32,
+    "detail_gap": 22.07,
+    "colour_gap": 2.802,
+    "nodes": 4647,
+    "shape_ratio": 0.88,
+    "labels": [
+      "detail short",
+      "palette off"
+    ],
+    "worst_box": [
+      99,
+      116,
+      198,
+      232
+    ]
+  },
+  {
+    "file": "022.png",
+    "mode": "artwork",
+    "inks": 0,
+    "shapes": 531,
+    "kb": 415.1,
+    "leak": 0,
+    "colour": 9.323,
+    "detail": 39.71,
+    "teacher_nodes": 22238,
+    "teacher_colour": 5.803,
+    "teacher_detail": 61.69,
+    "detail_gap": 21.98,
+    "colour_gap": 3.52,
+    "nodes": 12219,
+    "shape_ratio": 0.55,
+    "labels": [
+      "flattened",
+      "palette off"
+    ],
+    "worst_box": [
+      281,
+      116,
+      377,
+      232
+    ]
+  },
+  {
+    "file": "020.png",
+    "mode": "artwork",
+    "inks": 0,
+    "shapes": 381,
+    "kb": 363.7,
+    "leak": 0,
+    "colour": 8.437,
+    "detail": 54.9,
+    "teacher_nodes": 15439,
+    "teacher_colour": 4.59,
+    "teacher_detail": 76.43,
+    "detail_gap": 21.53,
+    "colour_gap": 3.847,
+    "nodes": 10250,
+    "shape_ratio": 0.66,
+    "labels": [
+      "flattened",
+      "palette off"
+    ],
+    "worst_box": [
+      92,
+      232,
+      187,
+      348
+    ]
+  },
+  {
+    "file": "038.png",
+    "mode": "artwork",
+    "inks": 0,
+    "shapes": 271,
+    "kb": 238.2,
+    "leak": 0,
+    "colour": 7.479,
+    "detail": 55.95,
+    "teacher_nodes": 12793,
+    "teacher_colour": 2.686,
+    "teacher_detail": 77.17,
+    "detail_gap": 21.22,
+    "colour_gap": 4.793,
+    "nodes": 6781,
+    "shape_ratio": 0.53,
+    "labels": [
+      "flattened",
+      "palette off"
+    ],
+    "worst_box": [
+      101,
+      464,
+      202,
+      580
+    ]
+  },
+  {
+    "file": "062.png",
+    "mode": "artwork",
+    "inks": 0,
+    "shapes": 165,
+    "kb": 146.7,
+    "leak": 0,
+    "colour": 12.272,
+    "detail": 21.37,
+    "teacher_nodes": 38673,
+    "teacher_colour": 2.987,
+    "teacher_detail": 42.08,
+    "detail_gap": 20.71,
+    "colour_gap": 9.285,
+    "nodes": 4370,
+    "shape_ratio": 0.11,
+    "labels": [
+      "flattened",
+      "palette off"
+    ],
+    "worst_box": [
+      232,
+      198,
+      348,
+      297
+    ]
+  },
+  {
+    "file": "016.png",
+    "mode": "artwork",
+    "inks": 0,
+    "shapes": 511,
+    "kb": 482.6,
+    "leak": 0,
+    "colour": 10.508,
+    "detail": 38.93,
+    "teacher_nodes": 57318,
+    "teacher_colour": 4.461,
+    "teacher_detail": 59.38,
+    "detail_gap": 20.45,
+    "colour_gap": 6.047,
+    "nodes": 13406,
+    "shape_ratio": 0.23,
+    "labels": [
+      "flattened",
+      "palette off"
+    ],
+    "worst_box": [
+      348,
+      348,
+      464,
+      464
+    ]
+  },
+  {
+    "file": "033.png",
+    "mode": "artwork",
+    "inks": 0,
+    "shapes": 205,
+    "kb": 214.7,
+    "leak": 0,
+    "colour": 13.125,
+    "detail": 57.75,
+    "teacher_nodes": 9478,
+    "teacher_colour": 2.405,
+    "teacher_detail": 77.16,
+    "detail_gap": 19.41,
+    "colour_gap": 10.72,
+    "nodes": 6143,
+    "shape_ratio": 0.65,
+    "labels": [
+      "flattened",
+      "palette off"
+    ],
+    "worst_box": [
+      116,
+      116,
+      232,
+      232
+    ]
+  },
+  {
+    "file": "034.png",
+    "mode": "artwork",
+    "inks": 12,
+    "shapes": 156,
+    "kb": 119.0,
+    "leak": 0,
+    "colour": 2.579,
+    "detail": 59.75,
+    "teacher_nodes": 6063,
+    "teacher_colour": 1.467,
+    "teacher_detail": 78.53,
+    "detail_gap": 18.78,
+    "colour_gap": 1.112,
+    "nodes": 3421,
+    "shape_ratio": 0.56,
+    "labels": [
+      "flattened",
+      "palette off"
+    ],
+    "worst_box": [
+      348,
+      371,
+      464,
+      466
+    ]
+  },
+  {
+    "file": "043.png",
+    "mode": "artwork",
+    "inks": 0,
+    "shapes": 744,
+    "kb": 542.5,
+    "leak": 0,
+    "colour": 8.147,
+    "detail": 33.46,
+    "teacher_nodes": 37001,
+    "teacher_colour": 5.314,
+    "teacher_detail": 52.21,
+    "detail_gap": 18.75,
+    "colour_gap": 2.833,
+    "nodes": 16234,
+    "shape_ratio": 0.44,
+    "labels": [
+      "flattened",
+      "palette off"
+    ],
+    "worst_box": [
+      214,
+      348,
+      321,
+      464
+    ]
+  },
+  {
+    "file": "059.png",
+    "mode": "artwork",
+    "inks": 0,
+    "shapes": 93,
+    "kb": 106.3,
+    "leak": 0,
+    "colour": 6.933,
+    "detail": 33.66,
+    "teacher_nodes": 10837,
+    "teacher_colour": 4.387,
+    "teacher_detail": 51.78,
+    "detail_gap": 18.12,
+    "colour_gap": 2.546,
+    "nodes": 3187,
+    "shape_ratio": 0.29,
+    "labels": [
+      "flattened",
+      "palette off"
+    ],
+    "worst_box": [
+      239,
+      232,
+      335,
+      348
+    ]
+  },
+  {
+    "file": "041.png",
+    "mode": "artwork",
+    "inks": 5,
+    "shapes": 9,
+    "kb": 31.5,
+    "leak": 0,
+    "colour": 1.161,
+    "detail": 67.13,
+    "teacher_nodes": 550,
+    "teacher_colour": 0.611,
+    "teacher_detail": 84.87,
+    "detail_gap": 17.74,
+    "colour_gap": 0.55,
+    "nodes": 767,
+    "shape_ratio": 1.39,
+    "labels": [
+      "over-traced"
+    ],
+    "worst_box": [
+      116,
+      116,
+      232,
+      232
+    ]
+  },
+  {
+    "file": "024.png",
+    "mode": "artwork",
+    "inks": 0,
+    "shapes": 317,
+    "kb": 266.9,
+    "leak": 0,
+    "colour": 8.46,
+    "detail": 48.26,
+    "teacher_nodes": 11237,
+    "teacher_colour": 3.996,
+    "teacher_detail": 65.89,
+    "detail_gap": 17.63,
+    "colour_gap": 4.464,
+    "nodes": 7423,
+    "shape_ratio": 0.66,
+    "labels": [
+      "flattened",
+      "palette off"
+    ],
+    "worst_box": [
+      162,
+      348,
+      258,
+      464
+    ]
+  },
+  {
+    "file": "000.png",
+    "mode": "artwork",
+    "inks": 10,
+    "shapes": 147,
+    "kb": 178.0,
+    "leak": 0,
+    "colour": 3.058,
+    "detail": 56.69,
+    "teacher_nodes": 6646,
+    "teacher_colour": 1.42,
+    "teacher_detail": 74.11,
+    "detail_gap": 17.42,
+    "colour_gap": 1.638,
+    "nodes": 4905,
+    "shape_ratio": 0.74,
+    "labels": [
+      "flattened",
+      "palette off"
+    ],
+    "worst_box": [
+      232,
+      101,
+      348,
+      202
+    ]
+  },
+  {
+    "file": "050.png",
+    "mode": "artwork",
+    "inks": 0,
+    "shapes": 355,
+    "kb": 264.3,
+    "leak": 0,
+    "colour": 22.457,
+    "detail": 15.18,
+    "teacher_nodes": 50118,
+    "teacher_colour": 7.379,
+    "teacher_detail": 32.48,
+    "detail_gap": 17.3,
+    "colour_gap": 15.078,
+    "nodes": 7840,
+    "shape_ratio": 0.16,
+    "labels": [
+      "flattened",
+      "palette off"
+    ],
+    "worst_box": [
+      232,
+      0,
+      348,
+      116
+    ]
+  },
+  {
+    "file": "060.png",
+    "mode": "artwork",
+    "inks": 0,
+    "shapes": 314,
+    "kb": 266.2,
+    "leak": 0,
+    "colour": 8.153,
+    "detail": 25.78,
+    "teacher_nodes": 34928,
+    "teacher_colour": 5.618,
+    "teacher_detail": 43.07,
+    "detail_gap": 17.29,
+    "colour_gap": 2.535,
+    "nodes": 7801,
+    "shape_ratio": 0.22,
+    "labels": [
+      "flattened",
+      "palette off"
+    ],
+    "worst_box": [
+      75,
+      116,
+      171,
+      232
+    ]
+  },
+  {
+    "file": "035.png",
+    "mode": "artwork",
+    "inks": 0,
+    "shapes": 320,
+    "kb": 286.3,
+    "leak": 0,
+    "colour": 6.626,
+    "detail": 25.8,
+    "teacher_nodes": 26656,
+    "teacher_colour": 4.523,
+    "teacher_detail": 43.06,
+    "detail_gap": 17.26,
+    "colour_gap": 2.103,
+    "nodes": 8288,
+    "shape_ratio": 0.31,
+    "labels": [
+      "flattened",
+      "palette off"
+    ],
+    "worst_box": [
+      214,
+      232,
+      321,
+      348
+    ]
+  },
+  {
+    "file": "005.png",
+    "mode": "artwork",
+    "inks": 7,
+    "shapes": 164,
+    "kb": 171.4,
+    "leak": 0,
+    "colour": 2.74,
+    "detail": 63.47,
+    "teacher_nodes": 2135,
+    "teacher_colour": 1.249,
+    "teacher_detail": 80.41,
+    "detail_gap": 16.94,
+    "colour_gap": 1.491,
+    "nodes": 4774,
+    "shape_ratio": 2.24,
+    "labels": [
+      "over-traced",
+      "palette off"
+    ],
+    "worst_box": [
+      228,
+      116,
+      342,
+      232
+    ]
+  },
+  {
+    "file": "025.png",
+    "mode": "artwork",
+    "inks": 0,
+    "shapes": 96,
+    "kb": 178.8,
+    "leak": 0,
+    "colour": 4.47,
+    "detail": 64.72,
+    "teacher_nodes": 4930,
+    "teacher_colour": 1.879,
+    "teacher_detail": 79.28,
+    "detail_gap": 14.56,
+    "colour_gap": 2.591,
+    "nodes": 5067,
+    "shape_ratio": 1.03,
+    "labels": [
+      "detail short",
+      "palette off"
+    ],
+    "worst_box": [
+      580,
+      464,
+      696,
+      580
+    ]
+  },
+  {
+    "file": "011.png",
+    "mode": "artwork",
+    "inks": 0,
+    "shapes": 88,
+    "kb": 76.7,
+    "leak": 0,
+    "colour": 7.854,
+    "detail": 25.32,
+    "teacher_nodes": 9691,
+    "teacher_colour": 4.146,
+    "teacher_detail": 39.41,
+    "detail_gap": 14.09,
+    "colour_gap": 3.708,
+    "nodes": 2359,
+    "shape_ratio": 0.24,
+    "labels": [
+      "flattened",
+      "palette off"
+    ],
+    "worst_box": [
+      180,
+      291,
+      275,
+      388
+    ]
+  },
+  {
+    "file": "051.png",
+    "mode": "artwork",
+    "inks": 0,
+    "shapes": 364,
+    "kb": 277.1,
+    "leak": 0,
+    "colour": 32.544,
+    "detail": 23.14,
+    "teacher_nodes": 31003,
+    "teacher_colour": 6.541,
+    "teacher_detail": 36.79,
+    "detail_gap": 13.65,
+    "colour_gap": 26.003,
+    "nodes": 7745,
+    "shape_ratio": 0.25,
+    "labels": [
+      "flattened",
+      "palette off"
+    ],
+    "worst_box": [
+      0,
+      464,
+      86,
+      580
+    ]
+  },
+  {
+    "file": "017.png",
+    "mode": "artwork",
+    "inks": 5,
+    "shapes": 23,
+    "kb": 41.0,
+    "leak": 0,
+    "colour": 0.719,
+    "detail": 75.25,
+    "teacher_nodes": 1453,
+    "teacher_colour": 0.392,
+    "teacher_detail": 88.66,
+    "detail_gap": 13.41,
+    "colour_gap": 0.327,
+    "nodes": 1128,
+    "shape_ratio": 0.78,
+    "labels": [
+      "flattened"
+    ],
+    "worst_box": [
+      348,
+      309,
+      464,
+      412
+    ]
+  },
+  {
+    "file": "061.png",
+    "mode": "artwork",
+    "inks": 0,
+    "shapes": 289,
+    "kb": 219.1,
+    "leak": 0,
+    "colour": 11.406,
+    "detail": 26.93,
+    "teacher_nodes": 11860,
+    "teacher_colour": 4.402,
+    "teacher_detail": 40.14,
+    "detail_gap": 13.21,
+    "colour_gap": 7.004,
+    "nodes": 6365,
+    "shape_ratio": 0.54,
+    "labels": [
+      "flattened",
+      "palette off"
+    ],
+    "worst_box": [
+      348,
+      232,
+      464,
+      348
+    ]
+  },
+  {
+    "file": "039.png",
+    "mode": "artwork",
+    "inks": 0,
+    "shapes": 292,
+    "kb": 285.6,
+    "leak": 0,
+    "colour": 4.846,
+    "detail": 59.78,
+    "teacher_nodes": 6907,
+    "teacher_colour": 3.215,
+    "teacher_detail": 72.47,
+    "detail_gap": 12.69,
+    "colour_gap": 1.631,
+    "nodes": 7873,
+    "shape_ratio": 1.14,
+    "labels": [
+      "detail short",
+      "palette off"
+    ],
+    "worst_box": [
+      339,
+      464,
+      452,
+      580
+    ]
+  },
+  {
+    "file": "019.png",
+    "mode": "artwork",
+    "inks": 7,
+    "shapes": 37,
+    "kb": 47.0,
+    "leak": 0,
+    "colour": 1.089,
+    "detail": 69.99,
+    "teacher_nodes": 2508,
+    "teacher_colour": 0.617,
+    "teacher_detail": 82.54,
+    "detail_gap": 12.55,
+    "colour_gap": 0.472,
+    "nodes": 1322,
+    "shape_ratio": 0.53,
+    "labels": [
+      "flattened"
+    ],
+    "worst_box": [
+      246,
+      116,
+      342,
+      232
+    ]
+  },
+  {
+    "file": "007.png",
+    "mode": "artwork",
+    "inks": 0,
+    "shapes": 204,
+    "kb": 217.4,
+    "leak": 0,
+    "colour": 7.183,
+    "detail": 26.92,
+    "teacher_nodes": 22749,
+    "teacher_colour": 5.48,
+    "teacher_detail": 39.27,
+    "detail_gap": 12.35,
+    "colour_gap": 1.703,
+    "nodes": 6485,
+    "shape_ratio": 0.29,
+    "labels": [
+      "flattened",
+      "palette off"
+    ],
+    "worst_box": [
+      92,
+      348,
+      187,
+      464
+    ]
+  },
+  {
+    "file": "036.png",
+    "mode": "artwork",
+    "inks": 0,
+    "shapes": 105,
+    "kb": 137.1,
+    "leak": 0,
+    "colour": 5.234,
+    "detail": 52.0,
+    "teacher_nodes": 10145,
+    "teacher_colour": 2.266,
+    "teacher_detail": 62.93,
+    "detail_gap": 10.93,
+    "colour_gap": 2.968,
+    "nodes": 3862,
+    "shape_ratio": 0.38,
+    "labels": [
+      "flattened",
+      "palette off"
+    ],
+    "worst_box": [
+      412,
+      232,
+      515,
+      348
+    ]
+  },
+  {
+    "file": "053.png",
+    "mode": "artwork",
+    "inks": 0,
+    "shapes": 212,
+    "kb": 156.0,
+    "leak": 0,
+    "colour": 11.33,
+    "detail": 23.83,
+    "teacher_nodes": 24877,
+    "teacher_colour": 4.869,
+    "teacher_detail": 33.68,
+    "detail_gap": 9.85,
+    "colour_gap": 6.461,
+    "nodes": 4523,
+    "shape_ratio": 0.18,
+    "labels": [
+      "flattened",
+      "palette off"
+    ],
+    "worst_box": [
+      348,
+      348,
+      464,
+      464
+    ]
+  },
+  {
+    "file": "031.png",
+    "mode": "artwork",
+    "inks": 2,
+    "shapes": 12,
+    "kb": 26.6,
+    "leak": 0,
+    "colour": 0.262,
+    "detail": 75.02,
+    "teacher_nodes": 677,
+    "teacher_colour": 0.189,
+    "teacher_detail": 84.01,
+    "detail_gap": 8.99,
+    "colour_gap": 0.073,
+    "nodes": 661,
+    "shape_ratio": 0.98,
+    "labels": [
+      "detail short"
+    ],
+    "worst_box": [
+      464,
+      97,
+      580,
+      194
+    ]
+  },
+  {
+    "file": "058.png",
+    "mode": "artwork",
+    "inks": 0,
+    "shapes": 257,
+    "kb": 217.3,
+    "leak": 0,
+    "colour": 7.314,
+    "detail": 38.71,
+    "teacher_nodes": 19331,
+    "teacher_colour": 4.164,
+    "teacher_detail": 47.44,
+    "detail_gap": 8.73,
+    "colour_gap": 3.15,
+    "nodes": 6388,
+    "shape_ratio": 0.33,
+    "labels": [
+      "flattened",
+      "palette off"
+    ],
+    "worst_box": [
+      172,
+      232,
+      268,
+      348
+    ]
+  },
+  {
+    "file": "023.png",
+    "mode": "artwork",
+    "inks": 0,
+    "shapes": 232,
+    "kb": 260.8,
+    "leak": 0,
+    "colour": 6.557,
+    "detail": 58.44,
+    "teacher_nodes": 8649,
+    "teacher_colour": 2.839,
+    "teacher_detail": 64.83,
+    "detail_gap": 6.39,
+    "colour_gap": 3.718,
+    "nodes": 7060,
+    "shape_ratio": 0.82,
+    "labels": [
+      "detail short",
+      "palette off"
+    ],
+    "worst_box": [
+      232,
+      232,
+      348,
+      348
+    ]
+  },
+  {
+    "file": "004.png",
+    "mode": "artwork",
+    "inks": 0,
+    "shapes": 148,
+    "kb": 106.0,
+    "leak": 0,
+    "colour": 15.067,
+    "detail": 5.7,
+    "teacher_nodes": 6312,
+    "teacher_colour": 5.913,
+    "teacher_detail": 11.46,
+    "detail_gap": 5.76,
+    "colour_gap": 9.154,
+    "nodes": 2784,
+    "shape_ratio": 0.44,
+    "labels": [
+      "palette off"
+    ],
+    "worst_box": [
+      232,
+      142,
+      348,
+      238
+    ]
+  },
+  {
+    "file": "001.png",
+    "mode": "artwork",
+    "inks": 0,
+    "shapes": 114,
+    "kb": 76.8,
+    "leak": 0,
+    "colour": 22.233,
+    "detail": 34.78,
+    "teacher_nodes": 6095,
+    "teacher_colour": 5.176,
+    "teacher_detail": 38.67,
+    "detail_gap": 3.89,
+    "colour_gap": 17.057,
+    "nodes": 2207,
+    "shape_ratio": 0.36,
+    "labels": [
+      "palette off"
+    ],
+    "worst_box": [
+      330,
+      348,
+      426,
+      464
+    ]
+  },
+  {
+    "file": "002.png",
+    "mode": "artwork",
+    "inks": 0,
+    "shapes": 80,
+    "kb": 62.8,
+    "leak": 0,
+    "colour": 7.69,
+    "detail": 8.67,
+    "teacher_nodes": 1659,
+    "teacher_colour": 6.36,
+    "teacher_detail": 10.85,
+    "detail_gap": 2.18,
+    "colour_gap": 1.33,
+    "nodes": 1617,
+    "shape_ratio": 0.97,
+    "labels": [
+      "palette off"
+    ],
+    "worst_box": [
+      0,
+      132,
+      116,
+      228
+    ]
+  },
+  {
+    "file": "003.png",
+    "mode": "artwork",
+    "inks": 0,
+    "shapes": 62,
+    "kb": 45.3,
+    "leak": 0,
+    "colour": 9.892,
+    "detail": 7.39,
+    "teacher_nodes": 1460,
+    "teacher_colour": 6.863,
+    "teacher_detail": 8.81,
+    "detail_gap": 1.42,
+    "colour_gap": 3.029,
+    "nodes": 1262,
+    "shape_ratio": 0.86,
+    "labels": [
+      "palette off"
+    ],
+    "worst_box": [
+      116,
+      204,
+      232,
+      300
+    ]
+  },
+  {
+    "file": "052.png",
+    "mode": "artwork",
+    "inks": 0,
+    "shapes": 436,
+    "kb": 314.6,
+    "leak": 0,
+    "colour": 7.57,
+    "detail": 27.55,
+    "teacher_nodes": 7052,
+    "teacher_colour": 6.743,
+    "teacher_detail": 27.43,
+    "detail_gap": -0.12,
+    "colour_gap": 0.827,
+    "nodes": 8853,
+    "shape_ratio": 1.26,
+    "labels": [
+      "palette off"
+    ],
+    "worst_box": [
+      99,
+      116,
+      198,
+      232
+    ]
+  },
+  {
+    "file": "008.png",
+    "mode": "artwork",
+    "inks": 0,
+    "shapes": 143,
+    "kb": 132.9,
+    "leak": 0,
+    "colour": 5.519,
+    "detail": 53.9,
+    "teacher_nodes": 5432,
+    "teacher_colour": 5.035,
+    "teacher_detail": 46.26,
+    "detail_gap": -7.64,
+    "colour_gap": 0.484,
+    "nodes": 3901,
+    "shape_ratio": 0.72,
+    "labels": [
+      "close to reference"
+    ],
+    "worst_box": [
+      312,
+      348,
+      408,
+      464
+    ]
+  }
+]
