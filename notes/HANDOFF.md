@@ -1,3 +1,7 @@
+**SUPERSEDED — see `PLAN.md` at the repo root for the current state, what's
+shipped, what was tried and rejected since 14:40, and the active plan.** This
+file is kept as a historical snapshot of the first ~4 hours only.
+
 # Smart Vector quality work — state as of 10 Sep 2026, 14:40
 
 Written so this survives a session or account change. Everything below is
