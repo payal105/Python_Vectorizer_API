@@ -127,6 +127,11 @@ def _headers(outcome: Any, receipt: Any, params: VectorizeParams) -> dict[str, s
         "X-Path-Count": str(meta.get("paths", "")),
         "X-Shape-Count": str(meta.get("shapes", "")),
         "X-Combined-Paths": str(meta.get("combined") or "none"),
+        # Which candidate settings won, and how many were tried. Without this
+        # an adaptive result is unreproducible: the same upload can be traced
+        # under different settings and nothing in the file says which.
+        "X-Settings-Used": str(meta.get("settings_used") or "default"),
+        "X-Settings-Considered": str(meta.get("settings_considered", 1)),
         "X-Processing-Ms": str(timings.get("total", "")),
         "X-Vectorize-Mode": params.mode,
         "Cache-Control": "no-store",

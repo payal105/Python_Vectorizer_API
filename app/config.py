@@ -52,6 +52,21 @@ class Settings(BaseSettings):
     rate_limit_per_minute: int = Field(default=60, ge=0)
     """Requests per minute per API key; 0 disables rate limiting."""
 
+    # --- Adaptive settings search --------------------------------------------
+    adaptive_enabled: bool = True
+    """Trace each image several ways and keep the closest to the source.
+
+    Worth 14% of the colour error against the cached reference corpus, at
+    roughly 3.4x the tracing work. See app/services/adaptive.py.
+    """
+
+    adaptive_max_pixels: int = Field(default=4_000_000, ge=0)
+    """Skip the search above this source size, so large uploads stay bounded.
+
+    The search multiplies tracing time, and tracing already grows with the
+    image, so the two compound on exactly the inputs that are slowest.
+    """
+
     # --- Credits -------------------------------------------------------------
     credits_enabled: bool = True
     default_credit_balance: float = Field(default=1000.0, ge=0)

@@ -35,6 +35,22 @@ def client(settings: Settings):
         yield test_client
 
 
+@pytest.fixture()
+def single_trace_client(settings: Settings):
+    """A client that traces once, for tests that measure one stage in isolation.
+
+    The pipeline normally traces an image several ways and keeps whichever
+    lands closest to the source (app/services/adaptive.py). That is right for
+    callers and wrong for a test asking what one setting does, because the
+    search is free to answer with a different one — and it cannot tell that a
+    caller who asked for a setting's *default* value meant it, since
+    asked_for() compares against that default.
+    """
+    app = create_app(settings.model_copy(update={"adaptive_enabled": False}))
+    with TestClient(app) as test_client:
+        yield test_client
+
+
 def make_image(width: int = 240, height: int = 180, mode: str = "RGB") -> Image.Image:
     """A few flat-coloured shapes: the easy, high-signal case for a tracer."""
     image = Image.new(mode, (width, height), "white" if mode == "RGB" else (255, 255, 255, 0))

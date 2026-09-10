@@ -486,12 +486,12 @@ def test_denoise_defaults_to_low():
     assert VectorizeParams().processing_denoise == "low"
 
 
-def test_denoise_collapses_compression_noise(client):
+def test_denoise_collapses_compression_noise(single_trace_client):
     """The headline fix for chunky, notched edges."""
     noisy = _noisy_artwork()
     stacked = {"processing.hierarchical": "stacked"}
-    raw = post(client, noisy, name="art.jpg", **{"processing.denoise": "none"}, **stacked)
-    cleaned = post(client, noisy, name="art.jpg", **{"processing.denoise": "low"}, **stacked)
+    raw = post(single_trace_client, noisy, name="art.jpg", **{"processing.denoise": "none"}, **stacked)
+    cleaned = post(single_trace_client, noisy, name="art.jpg", **{"processing.denoise": "low"}, **stacked)
 
     raw_paths = int(raw.headers["X-Shape-Count"])
     clean_paths = int(cleaned.headers["X-Shape-Count"])
@@ -499,13 +499,13 @@ def test_denoise_collapses_compression_noise(client):
     assert clean_paths < raw_paths / 2, (raw_paths, clean_paths)
 
 
-def test_every_denoise_level_beats_none(client):
+def test_every_denoise_level_beats_none(single_trace_client):
     """Path counts are not monotonic across levels -- a wider window can split
     a region as easily as merge one -- but every level collapses the noise."""
     noisy = _noisy_artwork()
     counts = {
         level: int(
-            post(client, noisy, name="a.jpg", **{"processing.denoise": level},
+            post(single_trace_client, noisy, name="a.jpg", **{"processing.denoise": level},
                  **{"processing.hierarchical": "stacked"})
             .headers["X-Shape-Count"]
         )
@@ -1889,3 +1889,32 @@ def test_every_format_survives_a_gradient(client, fmt):
         assert b"/Shading" in response.content  # a real gradient, not flattened
     if fmt in ("png", "eps"):
         assert b"linearGradient" not in response.content
+
+
+def test_the_settings_search_reports_what_it_picked(client):
+    """An adaptive result has to say which settings produced it.
+
+    The pipeline traces an image several ways and keeps whichever lands
+    closest to the source, so the same upload can legitimately come back under
+    different settings on different images. Without the headers below the
+    result is unreproducible — nothing in the file records the choice."""
+    response = post(client, _noisy_artwork(), name="art.jpg")
+    assert response.status_code == 200
+    assert response.headers["X-Settings-Used"] in {
+        label for label, _ in __import__(
+            "app.services.adaptive", fromlist=["CANDIDATES"]).CANDIDATES
+    }
+    assert int(response.headers["X-Settings-Considered"]) >= 1
+
+
+def test_the_search_leaves_an_explicit_choice_alone(single_trace_client, client):
+    """Asking for a setting the search varies means the caller gets it.
+
+    Overriding a stated choice to chase a metric would make the parameter a
+    suggestion rather than an instruction."""
+    asked = post(client, _noisy_artwork(), name="art.jpg",
+                 **{"processing.denoise": "high"})
+    assert asked.status_code == 200
+    # Only one candidate is considered, because the caller settled it.
+    assert asked.headers["X-Settings-Considered"] == "1"
+    assert asked.headers["X-Settings-Used"] == "default"

@@ -20,7 +20,7 @@ from app.config import Settings
 from app.core.errors import APIError, JobTimeout, ServerBusy
 from app.core.logging import get_logger
 from app.schemas.params import VectorizeParams
-from app.services import engine, preprocess, render, svgdoc
+from app.services import adaptive, render, svgdoc
 
 logger = get_logger("pipeline")
 
@@ -50,12 +50,14 @@ def _run_sync(
     """The full blocking chain: decode -> trace -> assemble -> render."""
     started = time.perf_counter()
 
-    prepared = preprocess.prepare(data, params, settings.max_input_pixels)
-    t_prepared = time.perf_counter()
-
-    traced = engine.trace(prepared, params)
-    # trace() may have preferred the finer copy of the bitmap.
-    prepared = traced.prepared or prepared
+    # No single set of settings suits every image, and which one wins cannot be
+    # read off the image beforehand — so each candidate is traced and the one
+    # closest to the source is kept. See app/services/adaptive.py.
+    choice = adaptive.choose(data, params, settings)
+    prepared, traced = choice.prepared, choice.traced
+    # The winning candidate may have varied the parameters, and everything
+    # downstream has to assemble and render under the ones that actually won.
+    params = choice.params
     t_traced = time.perf_counter()
 
     svg_bytes, geometry = svgdoc.build(
@@ -82,6 +84,8 @@ def _run_sync(
 
     meta: dict[str, object] = {
         "engine": traced.engine,
+        "settings_used": choice.label,
+        "settings_considered": choice.considered,
         "source_format": prepared.source_format,
         "source_width": prepared.source_width,
         "source_height": prepared.source_height,
@@ -96,8 +100,10 @@ def _run_sync(
         "output_height": geometry["output_height"],
         "bytes": len(payload),
         "timings_ms": {
-            "preprocess": round((t_prepared - started) * 1000, 1),
-            "trace": round((t_traced - t_prepared) * 1000, 1),
+            # Preprocessing and tracing are no longer separable: every
+            # candidate does both, and this is the time for all of them plus
+            # the scoring that picked between them.
+            "select": round((t_traced - started) * 1000, 1),
             "assemble": round((t_built - t_traced) * 1000, 1),
             "render": round((finished - t_built) * 1000, 1),
             "total": round((finished - started) * 1000, 1),
