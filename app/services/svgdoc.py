@@ -740,157 +740,30 @@ def _smooth_curves(paths: list[etree._Element], supersample: int = 1) -> int:
 # banding it into narrow strips reads as stripes, and collapsing it to one
 # colour throws the shading away. Neither is what the artwork says.
 #
-# But the shading in this kind of artwork is almost always a straight ramp --
-# fitting one to a shaded sticker's lettering left a residual of 0.29 out of
-# 255 -- and SVG has had a construct for exactly that since the beginning. So
-# each flat fill is checked against the pixels it came from, and where those
-# pixels lie on a ramp the fill is replaced by a linearGradient along it.
-
-# How far the pixels may sit from the fitted ramp, per channel, before the
-# region is called flat-and-noisy rather than shaded.
-_GRADIENT_MAX_RESIDUAL = 8.0
-
-# How much the colour has to travel from one end of the region to the other to
-# be worth a gradient at all. Below this it is a flat fill with a slight cast.
-_GRADIENT_MIN_TRAVEL = 24.0
-
-# Sampled pixels needed before a fit is trusted.
-_GRADIENT_MIN_SAMPLES = 200
-
-# Every Nth pixel is sampled. The fit is over thousands of them either way.
-_GRADIENT_SAMPLE_STEP = 3
-
-
-def _fit_ramp(samples: list[tuple[int, int, tuple[int, int, int]]]):
-    """Least-squares fit of colour against position. None if it is not a ramp.
-
-    Returns the colour at each end of the region along the direction the
-    colour actually travels, plus those two points.
-    """
-    count = len(samples)
-    if count < _GRADIENT_MIN_SAMPLES:
-        return None
-    mean_x = sum(s[0] for s in samples) / count
-    mean_y = sum(s[1] for s in samples) / count
-    sxx = sum((s[0] - mean_x) ** 2 for s in samples)
-    syy = sum((s[1] - mean_y) ** 2 for s in samples)
-    sxy = sum((s[0] - mean_x) * (s[1] - mean_y) for s in samples)
-    det = sxx * syy - sxy * sxy
-    if not det:
-        return None
-
-    middle = []
-    slopes = []
-    residuals = []
-    for channel in range(3):
-        mean_c = sum(s[2][channel] for s in samples) / count
-        sxc = sum((s[0] - mean_x) * (s[2][channel] - mean_c) for s in samples)
-        syc = sum((s[1] - mean_y) * (s[2][channel] - mean_c) for s in samples)
-        gx = (syy * sxc - sxy * syc) / det
-        gy = (sxx * syc - sxy * sxc) / det
-        error = sum(
-            (s[2][channel] - (mean_c + gx * (s[0] - mean_x) + gy * (s[1] - mean_y))) ** 2
-            for s in samples
-        )
-        middle.append(mean_c)
-        slopes.append((gx, gy))
-        residuals.append((error / count) ** 0.5)
-
-    if max(residuals) > _GRADIENT_MAX_RESIDUAL:
-        return None
-
-    # The direction the colour travels is the average of the three channel
-    # gradients, weighted by how fast each one moves.
-    dx = sum(g[0] for g in slopes)
-    dy = sum(g[1] for g in slopes)
-    length = math.hypot(dx, dy)
-    if not length:
-        return None
-    dx, dy = dx / length, dy / length
-
-    # How far along that direction the region actually reaches.
-    reach = [(s[0] - mean_x) * dx + (s[1] - mean_y) * dy for s in samples]
-    low, high = min(reach), max(reach)
-    if high <= low:
-        return None
-
-    def colour_at(distance: float) -> tuple[int, int, int]:
-        return tuple(  # type: ignore[return-value]
-            max(0, min(255, round(middle[c] + (slopes[c][0] * dx + slopes[c][1] * dy) * distance)))
-            for c in range(3)
-        )
-
-    start, end = colour_at(low), colour_at(high)
-    travel = sum((a - b) ** 2 for a, b in zip(start, end)) ** 0.5
-    if travel < _GRADIENT_MIN_TRAVEL:
-        return None
-    return (
-        start,
-        end,
-        (mean_x + dx * low, mean_y + dy * low),
-        (mean_x + dx * high, mean_y + dy * high),
-    )
-
-
-def _shaded_fills(
-    source: Image.Image, fills: list[str], step: int = _GRADIENT_SAMPLE_STEP
-) -> dict[str, tuple]:
-    """Which of *fills* cover a ramp in *source*, and the ramp that fits."""
-    targets = [(fill, _rgb(fill)) for fill in fills]
-    targets = [(fill, rgb) for fill, rgb in targets if rgb is not None]
-    if len(targets) < 2:
-        return {}
-
-    grouped: dict[str, list[tuple[int, int, tuple[int, int, int]]]] = {
-        fill: [] for fill, _ in targets
-    }
-    pixels = source.load()
-    width, height = source.size
-    for y in range(0, height, step):
-        for x in range(0, width, step):
-            colour = pixels[x, y][:3]
-            nearest = min(
-                targets, key=lambda t: sum((a - b) ** 2 for a, b in zip(t[1], colour))
-            )
-            grouped[nearest[0]].append((x, y, colour))
-
-    ramps = {}
-    for fill, samples in grouped.items():
-        fitted = _fit_ramp(samples)
-        if fitted is not None:
-            ramps[fill] = fitted
-    return ramps
+# Deciding what a shape was actually shaded with is a job of its own, and one
+# that wants real image analysis rather than string handling, so it lives in
+# app.services.gradients and is called here as a second stage. It runs at this
+# point in the build and not after it because everything below depends on the
+# fills being settled: the seam seal is painted from them, and the backdrop is
+# chosen by which of them covers the most.
 
 
 def _apply_gradients(
-    root: etree._Element, paths: list[etree._Element], source: Image.Image
-) -> int:
-    """Replace every flat fill that covers a ramp with a linearGradient."""
-    fills = sorted({p.get("fill") for p in paths if p.get("fill") not in (None, "none")})
-    ramps = _shaded_fills(source, fills)  # type: ignore[arg-type]
-    if not ramps:
-        return 0
+    root: etree._Element,
+    paths: list[etree._Element],
+    source: "Image.Image",
+    width: int,
+    height: int,
+    params: VectorizeParams,
+    palette: list[str] | None = None,
+) -> dict[str, object]:
+    """Hand the document to the gradient stage and report what it did."""
+    from app.services import gradients
 
-    defs = etree.Element(_q("defs"))
-    for index, (fill, (start, end, first, last)) in enumerate(sorted(ramps.items())):
-        gradient = etree.SubElement(defs, _q("linearGradient"))
-        gradient.set("id", f"shade{index}")
-        gradient.set("gradientUnits", "userSpaceOnUse")
-        gradient.set("x1", _fmt(first[0]))
-        gradient.set("y1", _fmt(first[1]))
-        gradient.set("x2", _fmt(last[0]))
-        gradient.set("y2", _fmt(last[1]))
-        for offset, colour in ((0.0, start), (1.0, end)):
-            stop = etree.SubElement(gradient, _q("stop"))
-            stop.set("offset", _fmt(offset))
-            stop.set("stop-color", "#%02x%02x%02x" % colour)
-        for path in paths:
-            if path.get("fill") == fill:
-                path.set("fill", f"url(#shade{index})")
-                if path.get("stroke") == fill:
-                    path.set("stroke", "#%02x%02x%02x" % start)
-    root.insert(0, defs)
-    return len(ramps)
+    report = gradients.refine_tree(
+        root, paths, source, width, height, params.gradient_params, palette
+    )
+    return report.as_dict()
 
 
 def _group_by_color(root: etree._Element, paths: list[etree._Element]) -> None:
@@ -1063,7 +936,7 @@ def build(
     supersample: int = 1,
     shading: "Image.Image | None" = None,
     source_has_alpha: bool = False,
-) -> tuple[bytes, dict[str, float | int]]:
+) -> tuple[bytes, dict[str, object]]:
     """Post-process raw tracer SVG into the final document.
 
     Returns the serialized SVG and geometry metadata for response headers.
@@ -1095,12 +968,22 @@ def build(
         _snap_to_palette(paths, effective_palette)
     merged = _merge_similar_colors(paths, params.processing_color_merge)
     _smooth_curves(paths, supersample)
-    # Flat fills that cover a ramp become gradients. Only worth asking when
-    # the colours were left as the artwork had them: a palette means the
-    # caller or the detector already decided the artwork is flat.
-    shaded = 0
-    if shading is not None and not effective_palette:
-        shaded = _apply_gradients(root, paths, shading)
+    # Flat fills that cover a ramp become gradients.
+    #
+    # A palette the *caller* chose is a promise, and a gradient would break it:
+    # asking for six inks and getting a ramp is not what was ordered, so the
+    # fills stay flat there. A palette the detector derived is not a promise,
+    # it is a guess that the artwork is flat -- and where the guess is wrong it
+    # is wrong in exactly the way that shows: a ramp gets cut into two inks,
+    # and every shape it crosses comes back as hard-edged patches of the two
+    # with a ragged step between them. So the guess is checked rather than
+    # trusted, against the artwork's own pixels from before they were mapped
+    # onto the palette, which is the only copy that still has the ramp in it.
+    shading_report: dict[str, object] = {}
+    if shading is not None and (not effective_palette or params.auto_palette):
+        shading_report = _apply_gradients(
+            root, paths, shading, source_w, source_h, params, effective_palette
+        )
     _apply_draw_style(paths, params)
     _apply_gap_filler(paths, params)
     _add_seam_backdrop(root, paths, params, source_w, source_h, source_has_alpha)
@@ -1129,11 +1012,12 @@ def build(
         pretty_print=True,
     )
 
-    meta: dict[str, float | int] = {
+    meta: dict[str, object] = {
         "paths": len(_paths(root)),
         "shapes": traced_shapes,
         "combined": combined,
-        "gradients": shaded,
+        "gradients": shading_report.get("gradients", 0),
+        "shading": shading_report,
         "source_width": source_w,
         "source_height": source_h,
         "output_width": target_w,

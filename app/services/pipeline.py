@@ -17,8 +17,9 @@ import anyio
 import anyio.to_thread
 
 from app.config import Settings
-from app.core.errors import APIError, JobTimeout, ServerBusy
+from app.core.errors import APIError, ImageTooLarge, JobTimeout, ServerBusy
 from app.core.logging import get_logger
+from app.schemas.gradients import GradientParams
 from app.schemas.params import VectorizeParams
 from app.services import engine, preprocess, render, svgdoc
 
@@ -33,6 +34,12 @@ class VectorizeOutcome:
     media_type: str
     filename: str
     meta: dict[str, object] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class GradientOutcome:
+    data: bytes
+    report: dict[str, object] = field(default_factory=dict)
 
 
 def safe_filename(original: str | None, extension: str) -> str:
@@ -66,7 +73,10 @@ def _run_sync(
         for_print=params.output_file_format in ("pdf", "eps"),
         palette=prepared.palette,
         supersample=prepared.supersample,
-        shading=prepared.image,
+        # Whether a shape was shaded is a question about the artwork, not
+        # about what the quantizer made of it, so hand over the copy from
+        # before the colours were mapped when there is one.
+        shading=prepared.shading or prepared.image,
         source_has_alpha=prepared.has_transparency,
     )
     t_built = time.perf_counter()
@@ -89,6 +99,7 @@ def _run_sync(
         "traced_height": prepared.traced_height,
         "downscaled": prepared.downscaled,
         "colors": prepared.color_count,
+        "shading": geometry.get("shading") or {},
         "paths": geometry["paths"],
         "shapes": geometry["shapes"],
         "combined": geometry["combined"],
@@ -119,6 +130,23 @@ def _run_sync(
         filename=safe_filename(filename, params.output_file_format),
         meta=meta,
     )
+
+
+def _refine_sync(
+    svg: bytes, data: bytes, params: GradientParams, max_pixels: int
+) -> GradientOutcome:
+    """The gradient stage on its own: decode the bitmap, then re-fit."""
+    from app.services import gradients
+
+    image, _ = preprocess.decode(data)
+    width, height = image.size
+    if width * height > max_pixels:
+        raise ImageTooLarge(
+            f"Input is {width}x{height} ({width * height:,} pixels); the "
+            f"limit is {max_pixels:,}."
+        )
+    refined, report = gradients.refine(svg, image, params)
+    return GradientOutcome(data=refined, report=report.as_dict())
 
 
 class Vectorizer:
@@ -157,6 +185,36 @@ class Vectorizer:
                 f"{self.settings.job_timeout_seconds:.0f}s to vectorize. Try a "
                 "smaller input.max_pixels or a higher "
                 "processing.shapes.min_area_px."
+            ) from None
+        except APIError:
+            raise
+        except MemoryError as exc:
+            raise ServerBusy("Ran out of memory processing this image.") from exc
+
+    async def refine_gradients(
+        self, svg: bytes, data: bytes, params: GradientParams
+    ) -> GradientOutcome:
+        """Run the gradient stage alone, under the same limits as a job.
+
+        It is the same work by the same code that a conversion does, so it
+        borrows the same worker slot and the same deadline rather than
+        competing with tracing for the machine.
+        """
+        try:
+            with anyio.fail_after(self.settings.job_timeout_seconds):
+                return await anyio.to_thread.run_sync(
+                    _refine_sync,
+                    svg,
+                    data,
+                    params,
+                    self.settings.max_input_pixels,
+                    limiter=self._limiter,
+                    abandon_on_cancel=True,
+                )
+        except TimeoutError:
+            raise JobTimeout(
+                "Refitting the gradients took longer than "
+                f"{self.settings.job_timeout_seconds:.0f}s."
             ) from None
         except APIError:
             raise

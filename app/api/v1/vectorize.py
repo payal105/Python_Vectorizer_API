@@ -117,7 +117,10 @@ OPENAPI_BODY = {
 def _headers(outcome: Any, receipt: Any, params: VectorizeParams) -> dict[str, str]:
     meta = outcome.meta
     timings = meta.get("timings_ms", {})
+    shading = meta.get("shading") or {}
     headers = {
+        "X-Gradient-Count": str(shading.get("gradients", 0)),
+        "X-Gradient-Merged": str(shading.get("merged", 0)),
         "X-Request-Id": current_request_id(),
         "X-Engine": str(meta.get("engine", "")),
         "X-Source-Width": str(meta.get("source_width", "")),

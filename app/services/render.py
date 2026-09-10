@@ -22,31 +22,61 @@ PRODUCER = "Python Vector API"
 
 
 _GRADIENT_RE = re.compile(
-    rb'<linearGradient[^>]*id="([^"]+)"[^>]*>(.*?)</linearGradient>', re.S
+    rb'<(linear|radial)Gradient[^>]*id="([^"]+)"[^>]*>(.*?)</(?:linear|radial)Gradient>',
+    re.S,
 )
-_STOP_RE = re.compile(rb'stop-color="#([0-9a-fA-F]{6})"')
+_STOP_RE = re.compile(
+    rb'offset="([0-9.]+)"\s+stop-color="#([0-9a-fA-F]{6})"'
+)
+
+
+def _mean_along(stops: list[tuple[bytes, bytes]]) -> bytes:
+    """The average colour a viewer would see across the whole ramp.
+
+    Averaging the stop colours alone is only right when the stops are evenly
+    spaced, and they deliberately are not: a stop is placed where the shading
+    turns, so a ramp that spends most of its length in one colour carries most
+    of its stops somewhere else. Weighting each stop by how much of the ramp
+    it governs is what makes the stand-in the colour the gradient actually
+    reads as.
+    """
+    offsets = [float(offset) for offset, _ in stops]
+    colours = [[int(colour[i : i + 2], 16) for i in (0, 2, 4)] for _, colour in stops]
+    if len(stops) == 1:
+        return b"#%02x%02x%02x" % tuple(colours[0])
+
+    total = 0.0
+    accumulated = [0.0, 0.0, 0.0]
+    for (start, first), (end, second) in zip(
+        zip(offsets, colours), zip(offsets[1:], colours[1:])
+    ):
+        span = max(0.0, end - start)
+        total += span
+        for channel in range(3):
+            accumulated[channel] += span * (first[channel] + second[channel]) / 2.0
+    if total <= 0:
+        average = [sum(c[i] for c in colours) / len(colours) for i in range(3)]
+    else:
+        average = [value / total for value in accumulated]
+    return b"#%02x%02x%02x" % tuple(int(round(v)) for v in average)
 
 
 def flatten_gradients(svg_bytes: bytes) -> bytes:
-    """Replace every gradient fill with the colour halfway along it.
+    """Replace every gradient fill with the average colour along it.
 
     Neither of reportlab's PNG and PostScript backends supports a gradient --
     they do not ignore one, they raise partway through drawing. Its PDF
     backend does, and writes a real shading, so PDF and SVG keep the gradient
     and the other two get the flat stand-in.
     """
-    if b"linearGradient" not in svg_bytes:
+    if b"Gradient" not in svg_bytes:
         return svg_bytes
     middles: dict[bytes, bytes] = {}
     for match in _GRADIENT_RE.finditer(svg_bytes):
-        stops = _STOP_RE.findall(match.group(2))
+        stops = _STOP_RE.findall(match.group(3))
         if not stops:
             continue
-        channels = [
-            [int(stop[i : i + 2], 16) for i in (0, 2, 4)] for stop in stops
-        ]
-        average = [sum(c[i] for c in channels) // len(channels) for i in range(3)]
-        middles[match.group(1)] = b"#%02x%02x%02x" % tuple(average)
+        middles[match.group(2)] = _mean_along(stops)
     if not middles:
         return svg_bytes
     for name, colour in middles.items():

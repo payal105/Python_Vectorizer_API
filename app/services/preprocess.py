@@ -44,6 +44,12 @@ class PreparedImage:
     has_transparency: bool
     supersample: int = 1
     finer: "PreparedImage | None" = None
+    # The same bitmap before its colours were mapped onto a palette, at the
+    # same size, or None when nothing was mapped. Quantizing is what turns a
+    # ramp into bands, so a stage that has to decide whether a shape was
+    # shaded cannot ask the quantized copy -- it would only ever see the
+    # bands. This is the artwork's own answer, kept for that one question.
+    shading: "Image.Image | None" = None
 
 
 def decode(data: bytes) -> tuple[Image.Image, str]:
@@ -1257,12 +1263,10 @@ def _finer_copy(
     """
     size = (original.width * _SUPERSAMPLE, original.height * _SUPERSAMPLE)
 
+    unquantized = None
     if palette_rgbs is not None:
-        enlarged, _ = _quantize(
-            original.resize(size, Image.Resampling.LANCZOS),
-            palette_rgbs,
-            subpixel=True,
-        )
+        unquantized = original.resize(size, Image.Resampling.LANCZOS)
+        enlarged, _ = _quantize(unquantized, palette_rgbs, subpixel=True)
     elif plan is None:
         return None
     else:
@@ -1292,6 +1296,7 @@ def _finer_copy(
         palette=palette,
         has_transparency=_has_transparency(enlarged),
         supersample=_SUPERSAMPLE,
+        shading=unquantized,
     )
 
 
@@ -1382,6 +1387,7 @@ def prepare(
         palette=palette,
         has_transparency=_has_transparency(image),
         finer=finer,
+        shading=original if palette_rgbs is not None else None,
     )
 
 

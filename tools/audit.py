@@ -6,13 +6,18 @@ Vectorizing is one long chain of automatic decisions, and most of them are
 invisible in the finished file. This prints them, so a new image can be
 checked in one line rather than opened in an editor and squinted at:
 
-    file                 size       inks  resid  objects  fills  ms
+    file                 size       inks  resid  objects  fills  grads  shade  ms
     sample_bump.jpeg     1600x1459     6   1.59       13      6  588
       #666666 #fdf9dc #2b2a28 #ffffff #f19fc3 #c9cfa1
 
 *inks* is the palette detected from the artwork, *resid* how far the average
 pixel sits from the nearest one. A dash means the image was read as
 continuous-tone and left alone, which is what should happen to photographs.
+
+*grads* is how many shapes came back as gradients rather than flat fills, and
+*shade* how far the fitted paint sits from the artwork's own pixels in CIELAB
+once they are in -- under about 1 is invisible at any zoom. Both are dashes on
+flat artwork, where gradients are never looked for.
 
 *2x* is how the bitmap was conditioned for the enlarged trace: 'ink' if a
 palette was found and the pixels mapped onto it, 'edge' if the colours were
@@ -65,6 +70,12 @@ def audit(path: Path, settings: Settings, write: Path | None) -> list[str]:
         prepared.traced_height,
         palette=prepared.palette,
         supersample=prepared.supersample,
+        # The gradient stage runs on every real conversion, so leaving it out
+        # here would report a file nobody is ever served -- and it has to be
+        # handed the same bitmap the pipeline hands it, from before the
+        # colours were mapped onto the palette, or the ramps it exists to find
+        # have already been flattened into bands by the time it looks.
+        shading=prepared.shading or prepared.image,
     )
     elapsed = (time.perf_counter() - started) * 1000
 
@@ -87,12 +98,16 @@ def audit(path: Path, settings: Settings, write: Path | None) -> list[str]:
     else:
         conditioning = "ink" if inks else "edge"
 
+    shading = meta["shading"] or {}
     print(
         f"  {path.name:<28} {prepared.source_width}x{prepared.source_height:<7} "
         f"{len(inks) if inks else '-':>4} "
         f"{residual if residual is not None else float('nan'):>6.2f} "
         f"{conditioning:>5} "
-        f"{meta['paths']:>8} {len(fills):>6} {elapsed:>6.0f}"
+        f"{meta['paths']:>8} {len(fills):>6} "
+        f"{shading.get('gradients') or '-':>6} "
+        f"{format(shading['residual_after'], '.2f') if shading else '-':>6} "
+        f"{elapsed:>6.0f}"
     )
     if inks:
         print("      " + " ".join(inks))
@@ -141,7 +156,7 @@ def main() -> int:
     settings = Settings(max_input_pixels=40_000_000)
     print(
         f"\n  {'file':<28} {'size':<11} {'inks':>4} {'resid':>6} {'2x':>5} "
-        f"{'objects':>8} {'fills':>6} {'ms':>6}"
+        f"{'objects':>8} {'fills':>6} {'grads':>6} {'shade':>6} {'ms':>6}"
     )
     warnings: list[str] = []
     for path in files:

@@ -13,6 +13,17 @@ vtracer>=0.6.11
 # --- Raster handling ---------------------------------------------------------
 pillow>=11.0
 
+# --- Gradient refinement -----------------------------------------------------
+# The second stage compares the finished vector against the source bitmap and
+# fits real gradients to the shapes that shade. numpy carries the pixels and
+# the least-squares fits; scipy supplies the labelled-region work (bounding
+# boxes, erosion, per-bin medians) and the Nelder-Mead search for a radial
+# centre; scikit-image supplies CIELAB, so that every threshold about colour
+# means the same thing in dark colours as in light ones.
+numpy>=2.0
+scipy>=1.14
+scikit-image>=0.24
+
 # --- Vector output (SVG -> PDF / EPS / PNG) ----------------------------------
 svglib>=1.5.1
 reportlab>=4.2

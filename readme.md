@@ -84,6 +84,7 @@ X-Api-Key: <id>:<secret>
 | Method | Path                    | Purpose                                          |
 | ------ | ----------------------- | ------------------------------------------------ |
 | `POST` | `/api/v1/vectorize`     | Convert a raster image to vector                 |
+| `POST` | `/api/v1/gradients`     | Re-fit an SVG's gradients against its source     |
 | `GET`  | `/api/v1/parameters`    | Machine-readable schema of every parameter       |
 | `GET`  | `/api/v1/formats`       | Supported input/output formats and mode pricing  |
 | `GET`  | `/api/v1/account`       | Credit balance, usage and limits for your key    |
@@ -113,6 +114,7 @@ Content-Disposition: attachment; filename="logo.pdf"
 X-Image-Width: 240.0        X-Source-Width: 240
 X-Image-Height: 180.0       X-Source-Height: 180
 X-Path-Count: 4             X-Engine: vtracer
+X-Gradient-Count: 2         X-Gradient-Merged: 5
 X-Processing-Ms: 41.2       X-Receipt: 9f2c...
 X-Credits-Charged: 1.00     X-Credits-Balance: 998.00
 ```
@@ -160,6 +162,16 @@ with types, ranges and defaults, generated from the schema.
 | `processing.splice_threshold` | 0–180 | `45` | Angle above which curves splice rather than join. |
 | `processing.max_iterations` | 1–64 | `10` | Curve-fitting refinement passes. |
 | `processing.path_precision` | 0–8 | `3` | Decimal places in path data. Lower = smaller files. |
+| `processing.gradients` | bool | `true` | Fit real gradients to shapes whose source pixels shade. See [Shaded artwork](#shaded-artwork-and-gradients). |
+| `processing.gradients.radial` | bool | `true` | Also consider radial gradients. Shading that spreads from a point comes back flat without this. |
+| `processing.gradients.merge_patches` | bool | `true` | Give neighbouring slices of one ramp a single shared gradient, so the colour runs continuously across the seam. |
+| `processing.gradients.max_stops` | 2–64 | `12` | Most stops one fitted gradient may use. |
+| `processing.gradients.tolerance` | 0–20 | `1.5` | How far a fitted gradient may sit from the artwork's colours, in CIELAB, before another stop is added. |
+
+The same knobs are available on `POST /api/v1/gradients` under a
+`gradients.` prefix, alongside `gradients.min_travel`,
+`gradients.max_residual`, `gradients.patch_distance` and
+`gradients.min_area_px`.
 
 ### Output
 
@@ -810,11 +822,10 @@ The tracer only ever emits flat fills, so shaded artwork had nowhere to go.
 Banding it into narrow strips reads as stripes; collapsing each region to one
 colour throws the shading away. Neither is what the artwork says.
 
-The shading in this kind of work is almost always a straight ramp, though —
-fitting one to a shaded sticker's lettering left a residual of **0.29 out of
-255** — and SVG has had a construct for exactly that since the beginning. So
-each flat fill is checked against the pixels it came from, and where those
-pixels lie on a ramp the fill is replaced by a `linearGradient` along it:
+So after the document is built, a second stage goes back to the pixels. It
+rasterizes the finished vector, so it knows exactly which source pixels each
+shape covers, fits a colour model to those pixels, and where they turn out to
+lie on a ramp replaces the flat fill with a real SVG gradient along it:
 
 ```xml
 <defs><linearGradient id="shade0" gradientUnits="userSpaceOnUse"
@@ -824,22 +835,118 @@ pixels lie on a ramp the fill is replaced by a `linearGradient` along it:
 <path d="…" fill="url(#shade0)"/>
 ```
 
-A fill has to earn it: the pixels must sit within 8 of the fitted ramp, the
-colour must travel at least 24 from one end of the region to the other, and
-there must be at least 200 of them. Flat artwork comes back with the flat
-fills it had.
+Three things it does that comparing fill colours to each other cannot:
 
-Gradients are only looked for when the colours were left as the artwork had
-them. A pinned palette, a colour budget, or a palette the detector found all
-mean the artwork was already judged flat, and the fills stay flat.
+**It knows where each shape is.** Attributing pixels by "nearest fill colour"
+mixes every shape of one colour together, wherever it sits, so a ramp fitted
+to them describes nothing in particular. A geometric mask is what makes a
+per-shape fit mean anything — and it is what lets a picture that traced to a
+*single* shape be fitted at all, which is the case a fill histogram has
+nothing to compare and used to leave as one averaged colour.
+
+**It fits curves, not only lines.** Shading is rarely linear in sRGB —
+falloff across a sphere certainly is not — so the ramp is profiled along its
+own axis and reduced to as many stops as it takes to stay inside tolerance.
+Two stops where two will do, more where the shading needs them. Shading that
+spreads from a point gets a `radialGradient`, found by solving for the centre
+in closed form and refining it by Nelder-Mead.
+
+**It repairs patches.** Neighbouring shapes that are slices of one ramp are
+fitted together and share a single gradient in user space, so the colour runs
+continuously across the seam between them rather than stepping at it. Whether
+two neighbours really are one ramp is decided by whether their colours agree
+*along the edge they share*, then confirmed by fitting them together: a shared
+ramp is only used if it describes the group about as well as the separate
+answers did. No geometry is changed; only the paint.
+
+A fill still has to earn a gradient. The colour must travel at least
+`gradients.min_travel` in CIELAB from one end of the shape to the other; the
+ramp must explain the pixels at least a fifth better than a flat fill does,
+*and* better by a full CIELAB unit, so a fill that is a whisker outside the
+visible threshold and made a whisker better is left as it is; and the shape
+must be bigger than `gradients.min_area_px`. A fill already inside the
+threshold of visibility is never touched — there is nothing there for a
+gradient to put right, and one would cost a definition and an object the
+editor has to carry. Stops are rationed by the evidence available too, so a
+sliver of a hundred pixels cannot buy a twelve-stop curve. Flat artwork comes
+back with the flat fills it had.
+
+#### Shading inside artwork that is otherwise flat
+
+A palette the **caller** chose is a promise, and a gradient would break it:
+asking for six inks and getting a ramp is not what was ordered. So
+`processing.palette` and `processing.max_colors` keep the fills flat.
+
+A palette the **detector** derived is not a promise — it is a guess that the
+artwork is flat, and the guess is only ever wrong in one direction. Sticker
+lettering is the usual case: a grey ground, a white halo, a near-black
+outline and one colour on the letters all read as flat, so inks are found and
+the bitmap is mapped onto them — and the one part that was *not* flat, the
+shading on the letters, gets cut into two or three shades of the same colour.
+Every shape it crosses then comes back as hard-edged patches of those shades
+with a ragged step between them, which is exactly what a gradient exists to
+prevent.
+
+So the guess is checked rather than trusted. The shapes are judged against
+the artwork's own pixels from **before** they were mapped onto the palette,
+which is the only copy that still has the ramp in it; where they really are
+flat, nothing changes and the file comes back byte for byte as it did before.
+
+Two things keep that check honest on artwork made of thin inks:
+
+- **A shape thinner than the blend around it is not judged at all.** A traced
+  outline a few pixels wide has a different ink on each side, so most of what
+  it covers is the ramp between them and eroding the mask cannot remove it
+  all. Fitted as it stands, a black outline beside a white halo comes back as
+  a ramp running from black to nearly white — a fine description of that
+  boundary and nothing to do with the shape, which is one flat black.
+- **Pixels that resolve to another ink are set aside.** The palette says what
+  every pixel was meant to be, so the evidence about a shape can be separated
+  from the evidence about its neighbours. It is a *family* of inks rather than
+  one, because the case this serves is a ramp the quantizer had to cut in two:
+  insisting on the exact ink would throw away half of the shape's own ramp.
+
+The same reasoning applies to merging. Neighbours have to agree along the edge
+they share *and* be the same ink, because groups grow by chaining and a chain
+is continuous across a boundary it should never cross — a pink fill meets the
+sliver of pink-white blend beside it, which meets a paler sliver, which meets
+the white halo. Without the second test that chain painted the halo with the
+letter's ramp.
+
+Measured over a corpus of shaded artwork — a linear banner, a diagonal badge,
+a shaded sphere, a landscape and a full-frame ramp — mean CIEDE2000 against
+the source fell from **4.33 to 0.29**, with the two worst cases (the sphere at
+5.35 and the full-frame ramp at 15.14) coming down to 0.33 and 0.11. Flat
+artwork was byte-identical before and after.
 
 **Format support is uneven, and it is reportlab's, not ours.** Its PDF backend
-writes a real `/Shading` for both kinds, so PDF and SVG keep the gradient. Its PNG and
+writes a real `/Shading`, so PDF and SVG keep the gradient. Its PNG and
 PostScript backends have no gradient support at all — they do not ignore one,
 they raise partway through drawing — so for those two each gradient fill is
-replaced by the colour halfway along it. The PNG is a preview and the flat
-stand-in is honest about that; if you need EPS with real shading, that needs a
-different renderer.
+replaced by the average colour along the ramp, weighted by how much of the
+ramp each stop governs. The PNG is a preview and the flat stand-in is honest
+about that; if you need EPS with real shading, that needs a different renderer.
+
+#### Running the stage on its own
+
+`POST /api/v1/gradients` is the same stage, exposed for a document you already
+hold — to re-fit an SVG whose gradients were flattened somewhere downstream,
+or to see what it makes of one image without re-tracing. `/vectorize` runs it
+for you on every conversion, so nothing has to be called here to get gradients
+out of the main endpoint, and the route is kept out of the published schema
+for that reason.
+
+It takes the original bitmap exactly as `/vectorize` does (`image`,
+`image.base64` or `image.url`) plus the vector as a `vector` file part,
+`vector.svg` text or `vector.base64`, and returns the refined SVG:
+
+```bash
+curl -u demo_id:demo_secret http://127.0.0.1:8000/api/v1/gradients   -F image=@artwork.png -F vector=@artwork.svg -o refined.svg
+```
+
+It re-fits from the source rather than compounding, so running it on its own
+output is a no-op rather than a second layer of definitions — and a gradient
+that the pixels do not support is removed as readily as one is added.
 
 ### Object count in Illustrator, Corel, Inkscape
 
@@ -1002,10 +1109,14 @@ replaced by an explicit limit that returns a clear `1004` error.
 (or plain `pip install -r requirements-dev.txt` and `pytest` with the
 environment activated)
 
-64 tests cover every output format, all three image-input styles, parameter
+196 tests cover every output format, all three image-input styles, parameter
 validation and rejection, geometry and unit conversion, colour quantization
 and palette pinning, draw styles, transparency, watermarking, credits,
-authentication, rate limiting, SSRF policy and the error envelope.
+authentication, rate limiting, SSRF policy and the error envelope — plus the
+gradient stage end to end and up close: where a shape sits once its transform
+is applied, which pixels its holes exclude, whether a ramp whose channels move
+apart is still found, and whether neighbouring slices of one gradient end up
+sharing it.
 
 ---
 
@@ -1019,21 +1130,25 @@ app/
     parsing.py         request -> (image bytes, validated params)
     deps.py            auth, throttling, injection
     v1/vectorize.py    the conversion endpoint
+    v1/gradients.py    the gradient stage, exposed on its own
     v1/meta.py         health, formats, parameters, account
   core/
     errors.py          error taxonomy and JSON envelope
     security.py        credential verification
     credits.py         credit accounting
     ratelimit.py       sliding-window limiter
-  schemas/params.py    every parameter, with validation
+  schemas/
+    params.py          every vectorize parameter, with validation
+    gradients.py       the gradient stage's own parameters
   services/
     preprocess.py      decode, EXIF, alpha, downscale, quantize
     engine.py          VTracer wrapper
     svgdoc.py          viewBox, sizing, draw styles, grouping, watermark
+    gradients.py       fits gradients to the source pixels under each shape
     render.py          SVG -> PDF / EPS / PNG
     pipeline.py        orchestration, threading, timeouts
     fetch.py           SSRF-guarded URL fetching
-tests/                 64 tests
+tests/                 196 tests
 ```
 
 ---

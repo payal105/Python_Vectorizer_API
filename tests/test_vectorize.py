@@ -1826,22 +1826,16 @@ def test_a_gradient_keeps_its_shading_end_to_end(client):
     assert len(pinks) <= 3, sorted(fills)
 
 
-def test_shaded_regions_come_out_as_gradients():
-    """The tracer only emits flat fills, so shaded artwork had nowhere to go:
-    banding it reads as stripes and collapsing it throws the shading away.
-    The shading in this kind of artwork is a straight ramp, though, and SVG
-    has a construct for exactly that."""
-    import re as _re
-
+def _shaded_build(art: bytes, **overrides):
+    """The real chain, gradient stage included, as /vectorize runs it."""
     from app.schemas.params import VectorizeParams
     from app.services import engine, preprocess, svgdoc
 
-    art = _gradient_strokes()
-    params = VectorizeParams()
+    params = VectorizeParams.model_validate(dict(overrides))
     prepared = preprocess.prepare(art, params, 40_000_000)
     traced = engine.trace(prepared, params)
     used = traced.prepared or prepared
-    svg, meta = svgdoc.build(
+    return svgdoc.build(
         traced.svg,
         params,
         used.traced_width,
@@ -1850,20 +1844,85 @@ def test_shaded_regions_come_out_as_gradients():
         supersample=used.supersample,
         shading=used.image,
     )
-    assert meta["gradients"] == 1, meta
+
+
+def test_shaded_regions_come_out_as_gradients():
+    """The tracer only emits flat fills, so shaded artwork had nowhere to go:
+    banding it reads as stripes and collapsing it throws the shading away.
+    SVG has had a construct for a ramp since the beginning, so each shape is
+    checked against the pixels it covers and given one where they shade.
+
+    Each of the four strokes in the fixture is its own shape in its own place,
+    and gets its own ramp: fitting one gradient across all of them would be
+    describing the gaps between them as much as the strokes."""
+    import re as _re
+
+    art = _gradient_strokes()
+    svg, meta = _shaded_build(art)
+    assert meta["gradients"] == 4, meta
     assert b"<linearGradient" in svg
     assert b'fill="url(#shade0)"' in svg
+    # The shading is what the fit is judged on, so it has to end up closer to
+    # the artwork than the flat fills it replaced.
+    shading = meta["shading"]
+    assert shading["residual_after"] < shading["residual_before"], shading
 
     # The stops have to be the ends of the artwork's own ramp, not guesses.
     stops = [
         tuple(int(s[i : i + 2], 16) for i in (0, 2, 4))
         for s in _re.findall(rb'stop-color="#([0-9a-fA-F]{6})"', svg)
     ]
-    assert len(stops) == 2
     source = Image.open(io.BytesIO(art)).convert("RGB")
     top, bottom = source.getpixel((140, 130)), source.getpixel((140, 395))
-    for fitted, actual in ((stops[0], top), (stops[1], bottom)):
-        assert max(abs(a - b) for a, b in zip(fitted, actual)) <= 12, (fitted, actual)
+    for actual in (top, bottom):
+        closest = min(
+            stops, key=lambda s: sum((a - b) ** 2 for a, b in zip(s, actual))
+        )
+        assert max(abs(a - b) for a, b in zip(closest, actual)) <= 12, (
+            closest,
+            actual,
+        )
+
+
+def test_a_ramp_is_not_flattened_into_one_colour():
+    """The failure a fill-colour histogram cannot see. Artwork the tracer
+    reads as a single shape has one fill, and a stage that only compares
+    fills to each other has nothing to compare -- so a full-frame gradient
+    came back as the one averaged colour it had been collapsed to."""
+    from PIL import ImageDraw
+
+    art = Image.new("RGB", (600, 300))
+    draw = ImageDraw.Draw(art)
+    for x in range(600):
+        t = x / 599
+        draw.line(
+            [(x, 0), (x, 300)],
+            fill=(int(250 - 60 * t), int(210 - 170 * t), int(60 - 10 * t)),
+        )
+    svg, meta = _shaded_build(png_bytes(art))
+    assert meta["gradients"] >= 1, meta
+    assert b"<linearGradient" in svg
+    assert meta["shading"]["residual_after"] < 3.0, meta["shading"]
+
+
+def test_shading_that_spreads_from_a_point_gets_a_radial_gradient():
+    """A straight ramp cannot describe falloff across a sphere. Fitting one
+    anyway leaves a residual too high to accept, and the shape falls back to
+    a flat fill -- which is how a shaded ball came back as a flat disc."""
+    art = _shaded_sphere(360)
+    svg, meta = _shaded_build(png_bytes(art))
+    assert meta["shading"]["radial"] >= 1, meta["shading"]
+    assert b"<radialGradient" in svg
+    assert meta["shading"]["residual_after"] < 3.0, meta["shading"]
+
+
+def test_gradients_can_be_turned_off():
+    """The flat fills are still what some workflows want."""
+    svg, meta = _shaded_build(
+        _gradient_strokes(), **{"processing.gradients": "false"}
+    )
+    assert meta["gradients"] == 0, meta
+    assert b"Gradient" not in svg
 
 
 def test_flat_artwork_gets_no_gradients(client):
@@ -1889,3 +1948,40 @@ def test_every_format_survives_a_gradient(client, fmt):
         assert b"/Shading" in response.content  # a real gradient, not flattened
     if fmt in ("png", "eps"):
         assert b"linearGradient" not in response.content
+
+
+@pytest.mark.parametrize("fmt", ["svg", "pdf", "eps", "png"])
+def test_every_format_survives_a_radial_gradient(client, fmt):
+    """A radial gradient reaches the same two backends that cannot draw one,
+    and has to be stood down for them the same way a linear one is."""
+    response = post(
+        client,
+        png_bytes(_shaded_sphere(320)),
+        name="ball.png",
+        **{"output.file_format": fmt},
+    )
+    assert response.status_code == 200, response.text
+    if fmt == "svg":
+        assert b"<radialGradient" in response.content
+    if fmt in ("png", "eps"):
+        assert b"Gradient" not in response.content
+
+
+def test_the_flat_stand_in_is_the_average_along_the_ramp():
+    """Stops are placed where the shading turns, not at even intervals, so
+    the mean of the stop colours is not the mean of the gradient. A ramp that
+    spends nine tenths of its length near white must not stand in as grey."""
+    from app.services.render import flatten_gradients
+
+    svg = (
+        b'<svg xmlns="http://www.w3.org/2000/svg"><defs>'
+        b'<linearGradient id="shade0">'
+        b'<stop offset="0" stop-color="#000000"/>'
+        b'<stop offset="0.1" stop-color="#ffffff"/>'
+        b'<stop offset="1" stop-color="#ffffff"/>'
+        b'</linearGradient></defs>'
+        b'<path d="M0 0Z" fill="url(#shade0)"/></svg>'
+    )
+    flattened = flatten_gradients(svg)
+    value = int(re.search(rb'fill="#(..)', flattened).group(1), 16)
+    assert value > 200, flattened

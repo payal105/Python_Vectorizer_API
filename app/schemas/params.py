@@ -16,7 +16,19 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.schemas.gradients import GradientParams
 from app.utils import units
+
+
+def _gradient_default(name: str) -> Any:
+    """Read a default from GradientParams rather than restating it.
+
+    The gradient stage owns these values; the vectorize surface only forwards
+    them. Copying the numbers across would let the two drift apart, and a
+    default that means one thing on /vectorize and another on the stage it
+    calls is the kind of difference nobody finds until it matters.
+    """
+    return GradientParams.model_fields[name].default
 
 Mode = Literal["production", "preview", "test"]
 FileFormat = Literal["svg", "pdf", "eps", "png"]
@@ -255,6 +267,58 @@ class VectorizeParams(BaseModel):
         ge=0,
         le=8,
         description="Decimal places kept in path coordinates. Lower = smaller files.",
+    )
+
+    # --- Gradients (forwarded to the refinement stage) ------------------------
+    processing_gradients: bool = Field(
+        default=_gradient_default("enabled"),
+        alias="processing.gradients",
+        description=(
+            "After tracing, compare each shape against the pixels it came "
+            "from and replace flat fills that cover shading with a real "
+            "gradient. On by default: the tracer can only emit flat colours, "
+            "so without this a sky or a sphere comes back either banded or "
+            "averaged into one tone. Turn it off to keep the flat fills."
+        ),
+    )
+    processing_gradients_radial: bool = Field(
+        default=_gradient_default("radial"),
+        alias="processing.gradients.radial",
+        description=(
+            "Let a shape be fitted with a radial gradient as well as a linear "
+            "one. Shading that spreads from a point cannot be described by a "
+            "straight ramp and comes back flat without this."
+        ),
+    )
+    processing_gradients_merge_patches: bool = Field(
+        default=_gradient_default("merge_patches"),
+        alias="processing.gradients.merge_patches",
+        description=(
+            "Fit neighbouring shapes that are slices of one ramp together, so "
+            "they share a single gradient and the colour runs continuously "
+            "across the seam. This is what removes the hard-edged patches a "
+            "traced gradient otherwise arrives as."
+        ),
+    )
+    processing_gradients_max_stops: int = Field(
+        default=_gradient_default("max_stops"),
+        alias="processing.gradients.max_stops",
+        ge=2,
+        le=64,
+        description=(
+            "Most stops one fitted gradient may use. A straight ramp needs "
+            "two; shading that curves gets as many as tolerance demands."
+        ),
+    )
+    processing_gradients_tolerance: float = Field(
+        default=_gradient_default("tolerance"),
+        alias="processing.gradients.tolerance",
+        gt=0,
+        le=20,
+        description=(
+            "How far a fitted gradient may sit from the artwork's own "
+            "colours, as a CIELAB distance, before another stop is added."
+        ),
     )
 
     # --- Output --------------------------------------------------------------
@@ -503,6 +567,19 @@ class VectorizeParams(BaseModel):
         return self
 
     # --- Derived -------------------------------------------------------------
+    @property
+    def gradient_params(self) -> GradientParams:
+        """The subset of this request the gradient stage needs to see."""
+        return GradientParams.model_validate(
+            {
+                "gradients.enabled": self.processing_gradients,
+                "gradients.radial": self.processing_gradients_radial,
+                "gradients.merge_patches": self.processing_gradients_merge_patches,
+                "gradients.max_stops": self.processing_gradients_max_stops,
+                "gradients.tolerance": self.processing_gradients_tolerance,
+            }
+        )
+
     @property
     def media_type(self) -> str:
         return MEDIA_TYPES[self.output_file_format]

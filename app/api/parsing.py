@@ -25,10 +25,12 @@ from app.core.errors import (
     MultipleImagesSupplied,
     NoImageSupplied,
 )
+from app.schemas.gradients import GradientParams
 from app.schemas.params import VectorizeParams
 from app.services.fetch import fetch_image
 
 IMAGE_FIELDS = ("image", "image.base64", "image.url")
+VECTOR_FIELDS = ("vector", "vector.base64", "vector.svg")
 
 
 @dataclass(slots=True)
@@ -37,6 +39,16 @@ class ParsedRequest:
     filename: str | None
     params: VectorizeParams
     source: str
+
+
+@dataclass(slots=True)
+class ParsedGradientRequest:
+    """An original bitmap and the vector traced from it, for /gradients."""
+
+    data: bytes
+    svg: bytes
+    filename: str | None
+    params: GradientParams
 
 
 def _friendly_validation_error(exc: ValidationError) -> BadParameter:
@@ -147,12 +159,109 @@ async def parse_vectorize_request(
     return ParsedRequest(data=data, filename=filename, params=params, source=source)
 
 
+async def _read_form(
+    request: Request, allowed_parts: tuple[str, ...]
+) -> tuple[dict[str, tuple[bytes, str | None]], dict[str, Any]]:
+    """Split a request body into its file parts and its plain fields."""
+    content_type = request.headers.get("content-type", "").split(";")[0].strip().lower()
+    uploads: dict[str, Any] = {}
+    fields: dict[str, Any] = {}
+
+    if content_type in ("multipart/form-data", "application/x-www-form-urlencoded"):
+        form = await request.form()
+        try:
+            for key, value in form.multi_items():
+                if isinstance(value, UploadFile):
+                    if key not in allowed_parts:
+                        raise BadParameter(
+                            f"Unexpected file part {key!r}; expected one of "
+                            + ", ".join(repr(name) for name in allowed_parts)
+                            + "."
+                        )
+                    if key in uploads:
+                        raise BadParameter(f"More than one {key!r} part supplied.")
+                    uploads[key] = value
+                else:
+                    fields[key] = value
+            for key, upload in list(uploads.items()):
+                # The form is closed below and its parts go with it, so every
+                # one that matters has to be read while it is still open.
+                uploads[key] = (await upload.read(), upload.filename)
+        finally:
+            await form.close()
+    elif content_type == "application/json":
+        fields = await _read_json_body(request)
+    else:
+        raise BadParameter(
+            "Content-Type must be multipart/form-data, "
+            "application/x-www-form-urlencoded or application/json."
+        )
+    return uploads, fields
+
+
+async def parse_gradient_request(
+    request: Request, settings: Settings
+) -> ParsedGradientRequest:
+    """Extract the original bitmap, the SVG to refine, and the parameters.
+
+    The stage compares two things, so both have to arrive: the raster the
+    artwork came from, supplied exactly as ``/vectorize`` takes it, and the
+    vector that was traced from it.
+    """
+    uploads, fields = await _read_form(request, ("image", "vector"))
+
+    raw_image = uploads.get("image")
+    data, filename, _ = await _resolve_image(raw_image, fields, settings)
+
+    part = uploads.get("vector")
+    svg = part[0] if part else None
+    if svg is None:
+        text = fields.get("vector.svg") or ""
+        encoded = fields.get("vector.base64") or ""
+        if text and encoded:
+            raise BadParameter(
+                "Supplied vector.svg and vector.base64; provide exactly one."
+            )
+        if text:
+            if not isinstance(text, str):
+                raise BadParameter("vector.svg must be a string.")
+            svg = text.encode("utf-8")
+        elif encoded:
+            if not isinstance(encoded, str):
+                raise BadParameter("vector.base64 must be a string.")
+            svg = _decode_base64(encoded)
+    if not svg:
+        raise BadParameter(
+            "No vector supplied. Send the SVG as a file part named 'vector', "
+            "or as vector.svg / vector.base64."
+        )
+    _check_size(svg, settings)
+
+    for key, value in request.query_params.items():
+        fields.setdefault(key, value)
+    for field in IMAGE_FIELDS + VECTOR_FIELDS:
+        fields.pop(field, None)
+
+    try:
+        params = GradientParams.model_validate(fields)
+    except ValidationError as exc:
+        raise _friendly_validation_error(exc) from exc
+    return ParsedGradientRequest(
+        data=data, svg=svg, filename=filename, params=params
+    )
+
+
 async def _resolve_image(
-    upload: UploadFile | None,
+    upload: "UploadFile | tuple[bytes, str | None] | None",
     fields: dict[str, Any],
     settings: Settings,
 ) -> tuple[bytes, str | None, str]:
-    """Pick exactly one of the three ways to supply an image."""
+    """Pick exactly one of the three ways to supply an image.
+
+    An upload arrives either as the live UploadFile -- which must be read
+    before the form is closed -- or as the bytes and filename already taken
+    off one, which is how the endpoints that read several parts hand it over.
+    """
     b64 = fields.get("image.base64")
     url = fields.get("image.url")
 
@@ -174,8 +283,11 @@ async def _resolve_image(
         )
 
     if upload is not None:
-        data = _check_size(await upload.read(), settings)
-        return data, upload.filename, "upload"
+        if isinstance(upload, tuple):
+            content, name = upload
+        else:
+            content, name = await upload.read(), upload.filename
+        return _check_size(content, settings), name, "upload"
 
     if b64:
         if not isinstance(b64, str):
