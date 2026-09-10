@@ -130,6 +130,7 @@ class GradientReport:
     linear: int = 0
     radial: int = 0
     merged: int = 0             # flat patches fused onto one shared ramp
+    unified: int = 0            # shapes given one colour where no ramp fitted
     stops: int = 0              # stops emitted in total
     residual_before: float = 0.0    # mean dE of the flat fills against source
     residual_after: float = 0.0     # mean dE once the gradients are in
@@ -142,6 +143,7 @@ class GradientReport:
             "linear": self.linear,
             "radial": self.radial,
             "merged": self.merged,
+            "unified": self.unified,
             "stops": self.stops,
             "residual_before": round(self.residual_before, 3),
             "residual_after": round(self.residual_after, 3),
@@ -990,6 +992,13 @@ def _adjacency(index_map: np.ndarray) -> dict:
     }
 
 
+# The widest a group may be, in CIELAB, before one colour stops being an
+# honest answer for all of it. This one is capped rather than left to
+# gradients.patch_distance, because unifying is the one thing here that throws
+# information away: opening the family width to 45 without this took the
+# reference lettering from 0.57 to 29.11 against its source.
+_UNIFY_MAX_SPAN = 12.0
+
 # A shared edge shorter than this is a corner touch, not a seam worth healing.
 _MIN_SHARED_BORDER = 8
 
@@ -1003,6 +1012,69 @@ _MAX_PATCH_GROUP = 24
 # or two colours that merely neighbour each other end up averaged together.
 _MERGE_SLACK = 1.3
 _MERGE_FLOOR = 0.4
+
+
+def _unify(
+    members: list, by_index: dict, fits: dict, params: GradientParams, report
+) -> None:
+    """Give a structure one colour when it could not be given a ramp.
+
+    This is the answer to the case that has nowhere else to go. A run of
+    neighbouring shapes has been found to be slices of one thing -- they agree
+    along the edges they share and they are the same ink -- but no single ramp
+    describes them, and each of them on its own is flat. Left alone that is
+    precisely a patchwork: one letter arriving as blocks of two barely
+    different colours with a ragged step between them, which is worse to look
+    at than either colour would be on its own.
+
+    So the structure is painted in one colour, and the colour is the darkest
+    of the ones it already uses. Darker rather than lighter because these are
+    stickers and lettering, where the shape reads against its background and
+    the paler choice thins it; and one of its own inks rather than an average,
+    because an average is a colour the artwork does not contain. Every member
+    ends up with the same fill, so the stage that fuses touching shapes of one
+    colour fuses them, and the structure becomes a single object with nothing
+    visible inside it.
+
+    Nothing happens where the group is already one colour, which is the common
+    case -- a background split into pieces by whatever sits on top of it.
+    """
+    inks: dict = {}
+    for index in members:
+        ink = _rgb(by_index[index].fill)
+        if ink is None:
+            return  # something already carries a gradient; leave it be
+        inks[ink] = inks.get(ink, 0) + by_index[index].area
+    if len(inks) < 2:
+        return
+
+    # Groups grow by chaining, so a run of neighbours that are each close can
+    # still span further than any of them is from its own neighbour. Choosing
+    # one colour for such a run is not a repair, it is repainting: measured
+    # with the family width opened to 45, this swallowed twenty-six shapes of
+    # the reference lettering and took its agreement with the source from 0.57
+    # to 29.11. One colour is only the right answer for shapes that really are
+    # one colour, so the whole group has to fit inside a single family width.
+    labs = _lab(np.asarray(list(inks), dtype=np.float64))
+    span = min(params.patch_distance, _UNIFY_MAX_SPAN)
+    if float(_delta_e(labs[:, None, :], labs[None, :, :]).max()) > span:
+        return
+
+    darkest = min(inks, key=lambda ink: float(_lab(np.asarray(ink, dtype=np.float64))[0]))
+    colour = _hex(darkest)
+    target = _lab(np.asarray(darkest, dtype=np.float64))
+    for index in members:
+        region = by_index[index]
+        _paint(region.element, colour)
+        # The report has to own up to what this costs: the shapes now sit
+        # further from the artwork than their own colours did, and saying so
+        # is the difference between a measurement and a decoration.
+        fits[index] = _Fit(
+            kind="flat",
+            residual=float(_delta_e(_lab(region.rgb), target).mean()),
+            travel=0.0,
+        )
+    report.unified += len(members)
 
 
 def _pooled(members: list, by_index: dict):
@@ -1363,17 +1435,27 @@ def refine_tree(
         for members in _patch_groups(regions, fits, _adjacency(index_map), params):
             xy, rgb = _pooled(members, by_index)
             fit, _ = _best_fit(xy, rgb, params)
-            if fit.kind == "flat":
+
+            blended = fit.kind != "flat"
+            if blended:
+                # One ramp for the group has to describe it about as well as
+                # the separate answers did. Where it does, it is the better
+                # answer: the same colours, and no step where two shapes meet.
+                weights = np.array(
+                    [by_index[i].area for i in members], dtype=np.float64
+                )
+                apart = float(
+                    (weights * [fits[i].residual for i in members]).sum()
+                    / weights.sum()
+                )
+                blended = fit.residual <= max(
+                    apart * _MERGE_SLACK, apart + _MERGE_FLOOR
+                )
+
+            if not blended:
+                _unify(members, by_index, fits, params, report)
                 continue
-            # One ramp for the group has to describe it about as well as the
-            # separate answers did. Where it does, it is the better answer:
-            # the same colours, and no step where two shapes meet.
-            weights = np.array([by_index[i].area for i in members], dtype=np.float64)
-            apart = float(
-                (weights * [fits[i].residual for i in members]).sum() / weights.sum()
-            )
-            if fit.residual > max(apart * _MERGE_SLACK, apart + _MERGE_FLOOR):
-                continue
+
             for index in members:
                 fits[index] = fit
             groups = [g for g in groups if g[0] not in members]
@@ -1401,6 +1483,7 @@ def refine_tree(
         fit = fits[members[0]]
         if fit.kind == "flat":
             continue
+
         if defs is None:
             defs = _defs(root)
 
@@ -1437,13 +1520,14 @@ def refine_tree(
     _drop_stale_gradients(root, paths)
     report.ms = (time.perf_counter() - started) * 1000
     logger.info(
-        "gradients: %s of %s regions shaded (%s linear, %s radial, %s merged), "
-        "dE %.2f -> %.2f in %.0f ms",
+        "gradients: %s of %s regions shaded (%s linear, %s radial, %s merged, "
+        "%s unified), dE %.2f -> %.2f in %.0f ms",
         report.gradients,
         report.regions,
         report.linear,
         report.radial,
         report.merged,
+        report.unified,
         report.residual_before,
         report.residual_after,
         report.ms,

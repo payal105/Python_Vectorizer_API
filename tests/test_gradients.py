@@ -13,6 +13,7 @@ import re
 
 import numpy as np
 import pytest
+from lxml import etree
 from PIL import Image, ImageDraw, ImageFilter
 
 from app.schemas.gradients import GradientParams
@@ -547,3 +548,76 @@ def test_a_fill_that_already_matches_the_artwork_is_left_alone():
     art = ramp(300, 200, start=(120, 140, 160), end=(122, 142, 162))
     _, report = gradients.refine(flat_svg(300, 200), art)
     assert report.gradients == 0, report
+
+
+# --- when no ramp fits --------------------------------------------------------
+
+
+def two_bands(top: str = "#eac5cd", bottom: str = "#deaab5") -> bytes:
+    return (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300">'
+        f'<path d="M0 0L400 0L400 150L0 150Z" fill="{top}"/>'
+        f'<path d="M0 150L400 150L400 300L0 300Z" fill="{bottom}"/></svg>'
+    ).encode()
+
+
+def test_a_structure_that_cannot_be_blended_takes_the_darker_colour():
+    """The answer for the case with nowhere else to go. Two shapes are found
+    to be slices of one thing, no ramp describes them, and each on its own is
+    flat -- which renders as a patchwork of two barely different colours with
+    a ragged step between them. One colour is better to look at than that,
+    and the darker one keeps the shape reading against its background."""
+    rng = np.random.default_rng(3)
+    art = np.zeros((300, 400, 3))
+    art[:150] = (234, 197, 205)
+    art[150:] = (222, 170, 181)
+    art += rng.normal(0, 9, art.shape)
+    art = Image.fromarray(art.clip(0, 255).astype(np.uint8))
+
+    root = etree.fromstring(two_bands())
+    paths = gradients.shapes_of(root)
+    report = gradients.refine_tree(
+        root, paths, art, 400, 300, GradientParams(), ["#eac5cd", "#deaab5"]
+    )
+    assert report.unified == 2, report
+    assert report.gradients == 0, report
+    # Both shapes end up on the darker of the two inks, and on the same one,
+    # so an editor fuses them into a single object.
+    assert {p.get("fill") for p in paths} == {"#deaab5"}
+
+
+def test_a_structure_that_can_be_blended_is_blended_rather_than_unified():
+    """Unifying is the fallback, not the preference: where the pixels really
+    do describe a ramp, the ramp wins and the shading survives."""
+    t = (np.arange(300, dtype=float) / 299)[:, None, None]
+    start, end = np.array([240.0, 200.0, 210.0]), np.array([215.0, 155.0, 172.0])
+    art = Image.fromarray(
+        (start + (end - start) * t).repeat(400, axis=1).astype(np.uint8)
+    )
+    root = etree.fromstring(two_bands())
+    report = gradients.refine_tree(
+        root, gradients.shapes_of(root), art, 400, 300, GradientParams(),
+        ["#eac5cd", "#deaab5"],
+    )
+    assert report.gradients == 1 and report.unified == 0, report
+
+
+def test_unifying_will_not_reach_across_two_different_colours():
+    """Groups grow by chaining, so a run of neighbours that are each close can
+    span further than any neighbouring pair does. Painting such a run one
+    colour is repainting rather than repair, and is refused however wide the
+    family width is opened."""
+    art = Image.new("RGB", (400, 300))
+    pixels = np.asarray(art).copy()
+    pixels[:150] = (240, 240, 240)
+    pixels[150:] = (60, 60, 60)
+    art = Image.fromarray(pixels)
+
+    root = etree.fromstring(two_bands("#f0f0f0", "#3c3c3c"))
+    report = gradients.refine_tree(
+        root, gradients.shapes_of(root), art, 400, 300,
+        GradientParams(**{"gradients.patch_distance": 100.0}),
+        ["#f0f0f0", "#3c3c3c"],
+    )
+    assert report.unified == 0, report
+    assert {p.get("fill") for p in gradients.shapes_of(root)} == {"#f0f0f0", "#3c3c3c"}

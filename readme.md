@@ -906,6 +906,25 @@ Two things keep that check honest on artwork made of thin inks:
   one, because the case this serves is a ramp the quantizer had to cut in two:
   insisting on the exact ink would throw away half of the shape's own ramp.
 
+**When no ramp fits at all, the structure gets one colour.** A run of
+neighbouring shapes can be found to be slices of one thing -- they agree along
+the edges they share and they are the same ink -- and still have no single ramp
+that describes them, with each of them flat on its own. Left alone that is
+precisely a patchwork: one letter arriving as blocks of two barely different
+colours with a ragged step between them, which is worse to look at than either
+colour would be on its own. So the whole structure is painted in the **darkest**
+of the inks it already uses -- darker rather than lighter because these are
+stickers and lettering, where the shape reads against its background and the
+paler choice thins it, and one of its own inks rather than an average, because
+an average is a colour the artwork does not contain. Every member ends up with
+the same fill, so the shapes fuse into a single object with nothing visible
+inside it. This is a fallback, never a preference: where the pixels really do
+describe a ramp, the ramp wins. And because it is the one step here that
+throws information away, it is refused for any group spanning more than one
+family width in CIELAB however far `gradients.patch_distance` is opened --
+without that ceiling, opening the width to 45 took the reference lettering
+from 0.57 to 29.11 against its source.
+
 The same reasoning applies to merging. Neighbours have to agree along the edge
 they share *and* be the same ink, because groups grow by chaining and a chain
 is continuous across a boundary it should never cross — a pink fill meets the
@@ -1109,7 +1128,7 @@ replaced by an explicit limit that returns a clear `1004` error.
 (or plain `pip install -r requirements-dev.txt` and `pytest` with the
 environment activated)
 
-196 tests cover every output format, all three image-input styles, parameter
+199 tests cover every output format, all three image-input styles, parameter
 validation and rejection, geometry and unit conversion, colour quantization
 and palette pinning, draw styles, transparency, watermarking, credits,
 authentication, rate limiting, SSRF policy and the error envelope — plus the
@@ -1148,7 +1167,7 @@ app/
     render.py          SVG -> PDF / EPS / PNG
     pipeline.py        orchestration, threading, timeouts
     fetch.py           SSRF-guarded URL fetching
-tests/                 196 tests
+tests/                 199 tests
 ```
 
 ---
