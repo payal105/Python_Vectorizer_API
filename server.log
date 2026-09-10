@@ -1,7 +1,2 @@
-2026-09-11T00:21:31 INFO     [-] vector_api: Python Vector API v1.0.0 ready (env=development, workers=16, auth=off)
-2026-09-11T00:21:41 INFO     [3a32ba580a5c] vector_api.http: GET /api/v1/health -> 200 in 4.7ms
-INFO:     127.0.0.1:55786 - "GET /api/v1/health HTTP/1.1" 200 OK
-2026-09-11T00:21:55 INFO     [eb458e0c86d7] vector_api.gradients: gradients: 7 of 12 regions shaded (3 linear, 4 radial, 0 merged, 0 unified), dE 0.04 -> 0.02 in 419 ms
-2026-09-11T00:21:55 INFO     [eb458e0c86d7] vector_api.pipeline: vectorized 900x900 PNG -> svg (288 paths, 1618 ms)
-2026-09-11T00:21:55 INFO     [eb458e0c86d7] vector_api.http: POST /api/v1/vectorize -> 200 in 1625.5ms
-INFO:     127.0.0.1:56072 - "POST /api/v1/vectorize HTTP/1.1" 200 OK
+2026-09-11T01:09:21 INFO     [-] vector_api: Python Vector API v1.0.0 ready (env=development, workers=16, auth=off)
+2026-09-11T01:09:21 INFO     [-] vector_api: shutting down

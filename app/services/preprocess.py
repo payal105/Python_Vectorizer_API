@@ -176,6 +176,23 @@ _MIN_INK_SEPARATION = 30.0
 # it is read as a blend of them rather than an ink of its own.
 _BLEND_TOLERANCE = 12.0
 
+# ...and the same question on a lossy source, where it has to answer for
+# compression ringing as well as for anti-aliasing. A codec overshoots on both
+# sides of a hard edge, past each colour and away from the other, so the tone
+# it leaves is not on the line between the two -- it is off the end of it, and
+# far enough off that the tolerance above lets it through as an ink of its own.
+# Every edge in the artwork then carries a sliver of that ink: a three-colour
+# cartoon at quality 70 came back with six inks and 41 objects where the same
+# picture losslessly gave three and three.
+#
+# 40 is where both cartoons come back with exactly their real inks. It was
+# checked against every flat file to hand, JPEG copies of them included, and
+# is neutral or better on all of them: the lettering sample keeps all six of
+# its inks, and a JPEG of the logo goes from six -- two of them ring -- to
+# exactly its four. It applies only to lossy sources, so nothing lossless can
+# be affected by it at all.
+_BLEND_TOLERANCE_LOSSY = 40.0
+
 # Candidates holding less of the image than this are compression debris.
 _INK_MIN_SHARE = 0.0005
 
@@ -266,7 +283,9 @@ def _ink_candidates(
 
 
 def _explained_as_blend(
-    colour: tuple[int, int, int], inks: list[tuple[int, int, int]]
+    colour: tuple[int, int, int],
+    inks: list[tuple[int, int, int]],
+    tolerance: float = _BLEND_TOLERANCE,
 ) -> bool:
     """True if *colour* is just a mixture of two inks already accepted.
 
@@ -293,7 +312,7 @@ def _explained_as_blend(
             weight = max(0.0, min(1.0, weight))
             mixed = tuple(ac + weight * d for ac, d in zip(a, delta))
             error = sum((c - m) ** 2 for c, m in zip(colour, mixed)) ** 0.5
-            if error <= _BLEND_TOLERANCE:
+            if error <= tolerance:
                 return True
     return False
 
@@ -313,7 +332,9 @@ def _solid_shares(ids: Image.Image, count: int) -> list[float]:
     return shares
 
 
-def _accept_inks(rgb: Image.Image, limit: int) -> list[tuple[int, int, int]]:
+def _accept_inks(
+    rgb: Image.Image, limit: int, tolerance: float = _BLEND_TOLERANCE
+) -> list[tuple[int, int, int]]:
     """Walk the candidates strongest-first, keeping the ones that are inks.
 
     Two conditions have to hold together before a colour is dismissed as a
@@ -342,7 +363,9 @@ def _accept_inks(rgb: Image.Image, limit: int) -> list[tuple[int, int, int]]:
     for position, colour in enumerate(colours):
         if total and weights[position] / total < _INK_MIN_SHARE:
             continue
-        if solid[position] < _INK_SOLID_FLOOR and _explained_as_blend(colour, inks):
+        if solid[position] < _INK_SOLID_FLOOR and _explained_as_blend(
+            colour, inks, tolerance
+        ):
             continue
         inks.append(colour)
         if len(inks) >= limit:
@@ -358,7 +381,9 @@ def _accept_inks(rgb: Image.Image, limit: int) -> list[tuple[int, int, int]]:
         for index, colour in enumerate(inks)
         if not (
             solid[colours.index(colour)] < _INK_SOLID_FLOOR
-            and _explained_as_blend(colour, inks[:index] + inks[index + 1 :])
+            and _explained_as_blend(
+                colour, inks[:index] + inks[index + 1 :], tolerance
+            )
         )
     ]
     return keep or inks
@@ -501,11 +526,16 @@ def _carries_a_ramp(rgb: Image.Image) -> bool:
     between two colours, so illustration with a little soft shading in it
     still gets the enlarged trace it needs.
     """
+    # The ordinary tolerance, whatever the source format: this asks whether
+    # the artwork is a gradient, not which inks to keep, and the answer should
+    # not move because a file was saved as a JPEG.
     inks = _accept_inks(rgb, _FLAT_MAX_INKS + 1)
     return bool(inks) and _has_gradient_band(rgb, inks)
 
 
-def _detect_flat_palette(rgb: Image.Image) -> list[tuple[int, int, int]] | None:
+def _detect_flat_palette(
+    rgb: Image.Image, tolerance: float = _BLEND_TOLERANCE
+) -> list[tuple[int, int, int]] | None:
     """Return the artwork's inks, or None if it is not flat artwork.
 
     Flat artwork traced as-is picks up a shape for every anti-aliasing band,
@@ -516,7 +546,7 @@ def _detect_flat_palette(rgb: Image.Image) -> list[tuple[int, int, int]] | None:
     illustration -- gets no palette at all, because flattening it to a dozen
     colours would be vandalism rather than cleanup.
     """
-    inks = _accept_inks(rgb, _FLAT_MAX_INKS + 1)
+    inks = _accept_inks(rgb, _FLAT_MAX_INKS + 1, tolerance)
     if not inks or len(inks) > _FLAT_MAX_INKS:
         return None
     if _mean_residual(rgb, inks) > _FLAT_MAX_RESIDUAL:
@@ -1111,6 +1141,7 @@ def _resolve_palette(
     max_colors: int,
     palette: list[str] | None,
     auto: bool,
+    lossy: bool = False,
 ) -> list[tuple[int, int, int]] | None:
     """Settle which colours the pixels will be mapped onto, or None for neither.
 
@@ -1126,7 +1157,9 @@ def _resolve_palette(
     if max_colors > 0:
         return _derive_palette(rgb, max(2, min(256, max_colors))) or None
     if auto:
-        return _detect_flat_palette(rgb)
+        return _detect_flat_palette(
+            rgb, _BLEND_TOLERANCE_LOSSY if lossy else _BLEND_TOLERANCE
+        )
     return None
 
 
@@ -1356,6 +1389,7 @@ def prepare(
         params.processing_max_colors,
         params.processing_palette,
         params.auto_palette,
+        lossy=source_format in LOSSY_INPUT_FORMATS,
     )
     # ...and only when there is compression noise for it to remove. A median
     # is a lossy operation dressed as a cleanup: it answers what the majority

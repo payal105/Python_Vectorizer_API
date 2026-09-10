@@ -384,6 +384,35 @@ Pre-blurring or upscaling the bitmap before tracing was tried and rejected —
 it makes edges visibly lumpy, because the softened ramp gives the curve fitter
 a wobbly boundary to follow.
 
+### A sliver along every edge, on a compressed source
+
+A codec rings at a hard edge: it overshoots on both sides, past each colour
+and *away* from the other. What it leaves is a tone that belongs to neither —
+and because it sits off the end of the line between them rather than on it,
+the test that rejects an anti-aliasing blend lets it through as an ink of its
+own.
+
+Every edge in the artwork then carries a sliver of that ink. A three-colour
+cartoon — peach body, black keyline, pink ground — saved at JPEG quality 70
+came back with **six inks and 41 objects**, where the same picture losslessly
+gave three and three. At quality 40 it was 64 objects. The audit tool flagged
+it in as many words: *"64 objects for 5 inks — check the edges for slivers."*
+Zoomed in, it reads as a pale line running between the keyline and the fill
+that the artwork does not contain.
+
+So on a **lossy source only**, a candidate has to sit further from the line
+between two accepted inks before it counts as a colour of its own — 40 in RGB
+rather than 12. Both cartoons then come back with exactly their three real
+inks and three objects, matching the lossless result, and the sliver is gone.
+
+The width applies to lossy sources alone because that is the only place the
+ring can come from, and because it would cost real colours anywhere else: on
+the lettering reference the wider setting drops the sage green of the flower
+leaves. Nothing lossless can be affected by it. Checked against every flat
+file to hand and JPEG copies of them, it is neutral or better on all of them —
+a JPEG of the four-colour logo goes from six inks, two of them ring, to
+exactly its four.
+
 ### A pale shape coming back the colour of its background
 
 A median despeckle is a lossy operation dressed as a cleanup. It answers what
@@ -1151,7 +1180,7 @@ replaced by an explicit limit that returns a clear `1004` error.
 (or plain `pip install -r requirements-dev.txt` and `pytest` with the
 environment activated)
 
-203 tests cover every output format, all three image-input styles, parameter
+206 tests cover every output format, all three image-input styles, parameter
 validation and rejection, geometry and unit conversion, colour quantization
 and palette pinning, draw styles, transparency, watermarking, credits,
 authentication, rate limiting, SSRF policy and the error envelope — plus the
@@ -1190,7 +1219,7 @@ app/
     render.py          SVG -> PDF / EPS / PNG
     pipeline.py        orchestration, threading, timeouts
     fetch.py           SSRF-guarded URL fetching
-tests/                 203 tests
+tests/                 206 tests
 ```
 
 ---

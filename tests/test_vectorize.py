@@ -2085,3 +2085,81 @@ def test_denoise_is_still_honoured_when_the_caller_asks_for_it():
         40_000_000,
     )
     assert list(default.image.getdata()) != list(asked.image.getdata())
+
+
+# --- compression ringing ------------------------------------------------------
+
+
+def _keyline_cartoon(width: int = 800, height: int = 500) -> Image.Image:
+    """Three flat colours: a peach body, a thick black keyline, a pink ground.
+
+    Exactly three inks and nothing else, so any extra colour a detector finds
+    in a compressed copy of it came from the codec rather than the artwork.
+    """
+    from PIL import ImageDraw, ImageFilter
+
+    scale = 3
+    size = (width * scale, height * scale)
+    body = Image.new("L", size, 0)
+    draw = ImageDraw.Draw(body)
+    draw.ellipse([int(.10 * size[0]), int(.16 * size[1]),
+                  int(.74 * size[0]), int(1.3 * size[1])], fill=255)
+    draw.ellipse([int(.56 * size[0]), int(.24 * size[1]),
+                  int(1.2 * size[0]), int(1.3 * size[1])], fill=255)
+    keyline = body.filter(ImageFilter.MaxFilter(2 * int(9 * scale / 2) + 1))
+
+    art = Image.new("RGB", size, (198, 70, 122))
+    art.paste(Image.new("RGB", size, (0, 0, 0)), (0, 0), keyline)
+    art.paste(Image.new("RGB", size, (247, 187, 160)), (0, 0), body)
+    return art.resize((width, height), Image.Resampling.LANCZOS)
+
+
+def test_compression_ringing_is_not_read_as_an_ink():
+    """A codec overshoots on both sides of a hard edge, past each colour and
+    away from the other, so what it leaves is not on the line between the two
+    and the ordinary blend test lets it through as an ink of its own. Every
+    edge then carries a sliver of it, and a three-colour cartoon arrives as
+    41 objects instead of 3."""
+    from app.services.preprocess import (
+        _BLEND_TOLERANCE,
+        _BLEND_TOLERANCE_LOSSY,
+        _detect_flat_palette,
+    )
+
+    buffer = io.BytesIO()
+    _keyline_cartoon().save(buffer, format="JPEG", quality=70)
+    compressed = Image.open(io.BytesIO(buffer.getvalue())).convert("RGB")
+
+    assert _BLEND_TOLERANCE_LOSSY > _BLEND_TOLERANCE
+    loose = _detect_flat_palette(compressed, _BLEND_TOLERANCE_LOSSY)
+    assert loose is not None and len(loose) == 3, loose
+    # ...and the ordinary tolerance is what let the ring through.
+    strict = _detect_flat_palette(compressed, _BLEND_TOLERANCE)
+    assert strict is not None and len(strict) > len(loose), strict
+
+
+def test_a_compressed_cartoon_traces_to_its_real_shapes(client):
+    """The visible half of the same defect: the extra inks became a pale
+    sliver along every edge, between the keyline and the fill."""
+    buffer = io.BytesIO()
+    _keyline_cartoon().save(buffer, format="JPEG", quality=70)
+    response = post(client, buffer.getvalue(), name="cartoon.jpg")
+    assert response.status_code == 200
+    fills = _fills(response.content)
+    assert len(fills) <= 4, sorted(fills)
+    assert int(response.headers["X-Path-Count"]) <= 8, response.headers["X-Path-Count"]
+
+
+def test_the_wider_tolerance_is_only_for_lossy_sources():
+    """A lossless file has no ring, so nothing about it may change -- and the
+    wider tolerance would cost real inks: on the lettering reference it drops
+    the sage green of the flower leaves."""
+    from app.schemas.params import VectorizeParams
+    from app.services import preprocess
+
+    art = _keyline_cartoon()
+    prepared = preprocess.prepare(png_bytes(art), VectorizeParams(), 40_000_000)
+    assert prepared.source_format == "PNG"
+    ordinary = preprocess._detect_flat_palette(art.convert("RGB"))
+    assert prepared.palette is not None
+    assert len(prepared.palette) == len(ordinary)
