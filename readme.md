@@ -384,6 +384,44 @@ Pre-blurring or upscaling the bitmap before tracing was tried and rejected —
 it makes edges visibly lumpy, because the softened ramp gives the curve fitter
 a wobbly boundary to follow.
 
+### Faceted edges and colour fringes, where the artwork is soft
+
+Every ink the detector finds becomes shapes. So a colour it finds that is not
+in the artwork becomes shapes that are not in the artwork either — and the
+place that happens is along a soft edge.
+
+Blur a stroke over a few pixels and each step of the ramp between it and the
+fill widens into a band. The rule that rejects a transition tone asks whether
+it is *thin*, and a wide enough band is not: on a three-colour picture blurred
+over six pixels the detector took **nine inks — six of them steps along one
+ramp** — and the stroke came back as **174 ragged shapes** with pink hairlines
+running along its edges. At four pixels it was 101. This is what makes an edge
+look faceted rather than drawn.
+
+Two things fix it, and both are about asking the existing question better:
+
+- **Thin, or long and thin.** A region of the artwork is roughly as wide as it
+  is long; a band lying along an edge is not, however thick. Area over the
+  square of its inscribed radius separates them — about π for a disc, 190 to
+  1372 for the ramp steps here. It is only asked of candidates holding under
+  2% of the picture, because some real inks are very elongated too: a white
+  halo drawn around lettering measures 191 on the same scale, and it holds
+  5.1%.
+- **Between, not merely near.** A mixture of two inks lies *between* them.
+  Clamping the test to the ends of the line turned it into "is it close to an
+  accepted ink", which is a different question that `_MIN_INK_SEPARATION`
+  already answers — and answers differently, so at a wide tolerance the two
+  rules contradicted each other. That is what dismissed the white halo: white
+  is lighter than both the cream and the grey it sits between, so it is no
+  mixture of them. The loose form is kept for candidates with no solid core at
+  all, because a codec's ring is not a mixture either — it overshoots *past*
+  both colours — and that is the case the previous section fixes.
+
+All four blur levels now come back with exactly the artwork's three inks and
+three objects, and the boundary renders as one clean edge. The lettering
+reference improved with them: 34 objects to 26, and 0.57 to 0.42 against its
+source.
+
 ### A sliver along every edge, on a compressed source
 
 A codec rings at a hard edge: it overshoots on both sides, past each colour
@@ -1180,7 +1218,7 @@ replaced by an explicit limit that returns a clear `1004` error.
 (or plain `pip install -r requirements-dev.txt` and `pytest` with the
 environment activated)
 
-206 tests cover every output format, all three image-input styles, parameter
+209 tests cover every output format, all three image-input styles, parameter
 validation and rejection, geometry and unit conversion, colour quantization
 and palette pinning, draw styles, transparency, watermarking, credits,
 authentication, rate limiting, SSRF policy and the error envelope — plus the
@@ -1219,7 +1257,7 @@ app/
     render.py          SVG -> PDF / EPS / PNG
     pipeline.py        orchestration, threading, timeouts
     fetch.py           SSRF-guarded URL fetching
-tests/                 206 tests
+tests/                 209 tests
 ```
 
 ---

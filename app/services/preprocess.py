@@ -11,7 +11,9 @@ import io
 from dataclasses import dataclass
 from typing import NamedTuple
 
+import numpy as np
 from PIL import Image, ImageChops, ImageFilter, ImageOps, UnidentifiedImageError
+from scipy import ndimage
 
 from app.core.errors import BadImageData, ImageTooLarge
 from app.core.logging import get_logger
@@ -176,6 +178,11 @@ _MIN_INK_SEPARATION = 30.0
 # it is read as a blend of them rather than an ink of its own.
 _BLEND_TOLERANCE = 12.0
 
+# How far along that line it has to fall as well. A mixture of two colours is
+# between them; something off the end of the line is its own colour, however
+# near it passes.
+_BLEND_MIN_WEIGHT = 0.05
+
 # ...and the same question on a lossy source, where it has to answer for
 # compression ringing as well as for anti-aliasing. A codec overshoots on both
 # sides of a hard edge, past each colour and away from the other, so the tone
@@ -200,6 +207,36 @@ _INK_MIN_SHARE = 0.0005
 # than a region. Measured on the test artwork: the six real inks came in
 # between 80.7% and 0.27% solid, every transition tone below 0.03%.
 _INK_SOLID_FLOOR = 0.001
+
+# How long and thin a candidate has to be before it is read as a band lying
+# along an edge rather than a region of the artwork. Area over the square of
+# the largest circle that fits inside it: about pi for a disc, and rising
+# without limit as a shape stretches.
+#
+# This is the other half of the thinness test, and it exists because thinness
+# alone assumes a transition band is narrow. It is, until the artwork's edges
+# are soft: blur a stroke over six pixels and each step of the ramp between it
+# and the fill becomes a band several pixels wide, solid enough to pass for a
+# region. The detector then took nine inks for a three-colour picture -- six of
+# them steps along one ramp -- and the stroke came back as 174 ragged shapes
+# with colour fringes along it.
+#
+# Measured over the flat files to hand, the separation is wide: the ramp steps
+# run from 190 to 1372, while the grey background that must survive the same
+# test -- a genuine mid-tone, and a blend of the black and white either side of
+# it -- sits at 12, and every other ink that is a blend of two others is below
+# 30.
+_INK_MAX_ELONGATION = 120.0
+
+# ...but only for a candidate small enough to be a band in the first place. A
+# colour holding a real share of the picture is a region however it is shaped,
+# and some real ones are very elongated: a white halo drawn around lettering
+# runs to 191 on this measure, the same as a ramp step. What separates them is
+# how much of the artwork they hold -- the halo 5.1%, every ramp step and
+# transition tone measured here below 0.6% -- so the elongation test is asked
+# only of the small ones. Without this it swallowed the white halo of the
+# lettering reference and the file came back with five inks instead of six.
+_INK_BAND_MAX_SHARE = 0.02
 
 # Candidates are gathered from a reduced copy: this stage identifies colours,
 # it does not resolve detail. Nearest-neighbour, because any smooth resampling
@@ -286,6 +323,7 @@ def _explained_as_blend(
     colour: tuple[int, int, int],
     inks: list[tuple[int, int, int]],
     tolerance: float = _BLEND_TOLERANCE,
+    strict: bool = True,
 ) -> bool:
     """True if *colour* is just a mixture of two inks already accepted.
 
@@ -309,6 +347,17 @@ def _explained_as_blend(
             if length == 0:
                 continue
             weight = sum((c - ac) * d for c, ac, d in zip(colour, a, delta)) / length
+            # Strictly between the two, not merely near one of them. Clamping
+            # to the ends made this ask "is it close to an accepted ink", which
+            # is a different question and one _MIN_INK_SEPARATION already
+            # answers -- and it answers it differently, so at a tolerance wider
+            # than that separation the two rules contradict each other. That is
+            # what dismissed the white halo of the lettering reference: white is
+            # lighter than both the cream and the grey it sits between, so it
+            # is no mixture of them, but it is within 36 of the cream and the
+            # clamp called that a blend.
+            if strict and not (_BLEND_MIN_WEIGHT < weight < 1.0 - _BLEND_MIN_WEIGHT):
+                continue
             weight = max(0.0, min(1.0, weight))
             mixed = tuple(ac + weight * d for ac, d in zip(a, delta))
             error = sum((c - m) ** 2 for c, m in zip(colour, mixed)) ** 0.5
@@ -330,6 +379,27 @@ def _solid_shares(ids: Image.Image, count: int) -> list[float]:
         if index < count and total:
             shares[index] = pixels / total
     return shares
+
+
+def _elongations(ids: Image.Image, count: int) -> list[float]:
+    """How band-like each candidate is: area over its inscribed radius squared.
+
+    A region of the artwork is roughly as wide as it is long, whatever its
+    outline; a band lying along an edge is not, however thick it happens to
+    be. The inscribed radius comes from a distance transform, so it measures
+    the widest part of the shape rather than its bounding box -- a ring and a
+    disc of the same box come out at opposite ends of this.
+    """
+    array = np.asarray(ids)
+    result = [0.0] * count
+    for index in range(count):
+        mask = array == index
+        area = int(mask.sum())
+        if not area:
+            continue
+        radius = float(ndimage.distance_transform_edt(mask).max())
+        result[index] = area / max(radius, 1.0) ** 2
+    return result
 
 
 def _accept_inks(
@@ -358,14 +428,42 @@ def _accept_inks(
     """
     colours, weights, total, ids = _ink_candidates(rgb)
     solid = _solid_shares(ids, len(colours))
+    elongation = _elongations(ids, len(colours))
+
+    def is_thin(position: int) -> bool:
+        return solid[position] < _INK_SOLID_FLOOR
+
+    def is_a_band(position: int) -> bool:
+        """Thin, or long and thin: either way not a region of the artwork."""
+        if is_thin(position):
+            return True
+        share = weights[position] / total if total else 0.0
+        return (
+            share < _INK_BAND_MAX_SHARE
+            and elongation[position] > _INK_MAX_ELONGATION
+        )
+
+    def is_a_blend(position: int, colour, against) -> bool:
+        """Whether *colour* is the boundary between two of *against*.
+
+        A candidate with nothing solid left in it is asked the loose question,
+        because a codec's ring is not a mixture of the two colours it sits
+        between -- it overshoots past them -- and nothing thinner than the
+        mode filter's window survives as artwork anyway. A candidate that does
+        hold a solid core is asked the strict one, because that is where a
+        real ink can be mistaken for a boundary: the white halo of the
+        lettering reference is off the end of the cream-to-grey line, not on
+        it, and only the strict question keeps it.
+        """
+        return _explained_as_blend(
+            colour, against, tolerance, strict=not is_thin(position)
+        )
 
     inks: list[tuple[int, int, int]] = []
     for position, colour in enumerate(colours):
         if total and weights[position] / total < _INK_MIN_SHARE:
             continue
-        if solid[position] < _INK_SOLID_FLOOR and _explained_as_blend(
-            colour, inks, tolerance
-        ):
+        if is_a_band(position) and is_a_blend(position, colour, inks):
             continue
         inks.append(colour)
         if len(inks) >= limit:
@@ -380,9 +478,9 @@ def _accept_inks(
         colour
         for index, colour in enumerate(inks)
         if not (
-            solid[colours.index(colour)] < _INK_SOLID_FLOOR
-            and _explained_as_blend(
-                colour, inks[:index] + inks[index + 1 :], tolerance
+            is_a_band(colours.index(colour))
+            and is_a_blend(
+                colours.index(colour), colour, inks[:index] + inks[index + 1 :]
             )
         )
     ]

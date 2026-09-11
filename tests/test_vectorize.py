@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import io
+import math
 import re
 
 import pytest
@@ -2163,3 +2164,72 @@ def test_the_wider_tolerance_is_only_for_lossy_sources():
     ordinary = preprocess._detect_flat_palette(art.convert("RGB"))
     assert prepared.palette is not None
     assert len(prepared.palette) == len(ordinary)
+
+
+# --- soft edges ---------------------------------------------------------------
+
+
+def _soft_stroke(blur: float, width: int = 1200, height: int = 900) -> Image.Image:
+    """A tapering stroke on a flat field, with edges softened by *blur*.
+
+    Three colours and nothing else. How softly they meet is the only thing
+    that changes, which is what makes it a test of the boundary rather than
+    of the artwork.
+    """
+    from PIL import ImageDraw, ImageFilter
+
+    art = Image.new("RGB", (width, height), (198, 70, 122))
+    ImageDraw.Draw(art).rounded_rectangle(
+        [40, 40, width - 40, height - 40], radius=30, fill=(247, 187, 160)
+    )
+    stroke = Image.new("L", (width, height), 0)
+    draw = ImageDraw.Draw(stroke)
+    for step in range(900):
+        t = step / 899
+        x = (0.12 + 0.76 * t) * width
+        y = (0.78 - 0.52 * t + 0.10 * math.sin(t * math.pi * 1.15)) * height
+        radius = 26 - 20 * t
+        draw.ellipse([x - radius, y - radius, x + radius, y + radius], fill=255)
+    if blur:
+        stroke = stroke.filter(ImageFilter.GaussianBlur(blur))
+    art.paste(Image.new("RGB", (width, height), (0, 0, 0)), (0, 0), stroke)
+    return art
+
+
+def test_a_soft_edge_does_not_become_a_stack_of_bands():
+    """The reported defect. Blur a stroke over several pixels and each step of
+    the ramp between it and the fill becomes a band wide enough to pass for a
+    region of the artwork: the detector took nine inks for a three-colour
+    picture, six of them steps along one ramp, and the stroke came back as
+    174 ragged shapes with colour fringes along its edges."""
+    from app.services.preprocess import _detect_flat_palette
+
+    for blur in (0, 2, 4, 6):
+        inks = _detect_flat_palette(_soft_stroke(blur))
+        assert inks is not None and len(inks) == 3, (blur, inks)
+
+
+def test_a_soft_edged_stroke_traces_to_its_real_shapes(client):
+    response = post(client, png_bytes(_soft_stroke(6)), name="soft.png")
+    assert response.status_code == 200
+    assert int(response.headers["X-Path-Count"]) <= 6, response.headers["X-Path-Count"]
+    assert len(_fills(response.content)) <= 4
+
+
+def test_a_colour_off_the_end_of_the_line_is_not_a_blend():
+    """A mixture of two inks lies between them. The white halo of the
+    lettering reference is lighter than both the cream and the grey it sits
+    between, so it is no mixture of them however near it passes -- and
+    clamping the test to the ends of the line dismissed it, taking the halo
+    out of the palette."""
+    from app.services.preprocess import _explained_as_blend
+
+    cream, grey = (253, 249, 220), (102, 102, 102)
+    white = (255, 255, 255)
+    midtone = tuple((c + g) // 2 for c, g in zip(cream, grey))
+
+    # Strictly between: a real mixture is caught, an overshoot is not.
+    assert _explained_as_blend(midtone, [cream, grey], 12.0)
+    assert not _explained_as_blend(white, [cream, grey], 40.0)
+    # ...and the loose form, kept for what a codec leaves, does catch it.
+    assert _explained_as_blend(white, [cream, grey], 40.0, strict=False)
