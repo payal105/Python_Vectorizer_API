@@ -384,6 +384,35 @@ Pre-blurring or upscaling the bitmap before tracing was tried and rejected —
 it makes edges visibly lumpy, because the softened ramp gives the curve fitter
 a wobbly boundary to follow.
 
+### Corners the fitter cut flat
+
+A curve fitter that reaches a bend it will not spend a curve on answers it by
+cutting across — which leaves a short straight run with the turn split between
+its two ends. At a hundred percent that reads as a slightly soft corner. Wound
+in to sixty-four times it is a flat facet with a hard kink at each end, and it
+is the thing that stops a traced outline looking drawn.
+
+Fusing does not remove them: it takes out nodes the tracer spent on a *wobble*,
+and a chamfer is not a wobble. Pushing the fusing tolerance up instead trades
+the facets for fidelity — measured, going from 1.2 to 3.0 source pixels took
+the facets on the lettering reference from 2.6% of the outline to 2.1% and its
+agreement with the source from 0.544 to 0.602, which is the wrong way round.
+
+So they are rounded rather than fused. Every short straight run whose
+neighbours turn through it has its handles laid along the directions those
+neighbours already have, so the three curves meet tangentially and the facet
+becomes the arc the artwork had. **No end point moves**, so nothing can drift
+away from the shape — only the way the run is entered and left changes. A run
+whose neighbours do not turn through it is an edge the artwork has and is left
+straight; one they turn through by more than `_SMOOTH_CORNER_DEGREES` is a
+corner the artwork has, and rounding it would take the point off a spike.
+
+On lettering it fires 358 to 414 times per file and takes the straight share of
+the outline down by about a fifth — 2.6% to 2.1% on one reference, 3.8% to 3.1%
+on the other — with agreement against the source unchanged to three decimal
+places. On artwork whose boundaries are already long smooth curves it fires a
+handful of times and changes nothing, which is the right answer there.
+
 ### Faceted edges and colour fringes, where the artwork is soft
 
 Every ink the detector finds becomes shapes. So a colour it finds that is not
@@ -421,6 +450,58 @@ All four blur levels now come back with exactly the artwork's three inks and
 three objects, and the boundary renders as one clean edge. The lettering
 reference improved with them: 34 objects to 26, and 0.57 to 0.42 against its
 source.
+
+### An olive fringe along every edge
+
+The seal that hides hairline seams is painted in the blend of the two colours
+that meet, which is the right paint for a seam and the wrong paint for
+anything else. It used to go on **every** shape.
+
+That was harmless while it stayed one device pixel wide, which is what
+`vector-effect="non-scaling-stroke"` promises. Skia and several editors do not
+honour it and scale the stroke with the zoom instead, so on black-on-cream
+botanical artwork every edge grew a band of `#848073` — olive, unmistakable,
+and thicker the further in you looked.
+
+The seal had also been made mostly redundant without anyone noticing. Once the
+seam backdrop lays the dominant ink under the whole canvas, a split seam
+reveals *that ink* rather than the page — so on
+any boundary where one side already is the dominant ink, the backdrop shows the
+right colour by itself and the stroke is pure damage.
+
+What is left needing a seal is the boundary between two inks that are both
+something else, and a shape can only sit on one of those if it is neither the
+dominant ink nor touching it. Only those are stroked now. Measured: agreement
+with the source went 0.412 to 0.140 on the logo and 0.545 to 0.432 on the
+layered artwork, leak stayed at zero at 1x, 2x, 6x and 14x, and the count of
+sealed shapes fell from every path to 3 of 4 on the logo, 17 on the layered
+artwork and none at all on two-colour artwork. Removing the stroke *entirely*
+was measured too and is worse — it costs the multi-ink samples 0.061 and 0.074
+at 3x, which is exactly the interior seams the backdrop cannot repair.
+
+Where nothing covers the canvas — a transparent background, or a source with
+alpha, where showing through is the point — every shape is sealed as before.
+
+### Serrations read as wobble
+
+Fusing asks whether one cubic can cover two segments without straying further
+than the tolerance. A fine serration and a fitting wobble both answer yes, and
+nothing in the test distinguishes them, so the tolerance is the whole decision.
+
+At 1.2 source pixels it was taking the teeth off traced botanical artwork: on
+a test leaf the coarse fronds kept their serrations while the fine ones came
+back flattened, which is the half-smoothed, ragged edge that gets reported as
+missing detail. Swept across the fixtures and the reference samples the cost
+turns out to be a curve rather than a slope, so there is a real optimum and the
+answer is not simply to fuse less — mean agreement with the source runs 0.3384
+/ 0.3305 / 0.3324 at 1.2 / 0.6 / 0.3, and mean edge agreement 64.78% / 66.24%
+/ 65.12%.
+
+At **0.6** nothing regressed and the logo gained most, 65.99% to 71.32% edge
+agreement. The smooth-edged fixture, which has no serration to keep, did not
+move at all — which is the check that matters, because it says the change adds
+detail where the artwork has it rather than adding noise everywhere. It costs
+about 17% in file size, being the wobble no longer fused away on busy artwork.
 
 ### A sliver along every edge, on a compressed source
 
@@ -747,7 +828,7 @@ easing nodes cannot touch it — Taubin's whole point is that it leaves the low
 frequencies where they are. The cause is simply that there are too many nodes:
 each one marks somewhere the pixel boundary turned, so a run of them along one
 gentle curve is a run of chances to wander. So neighbouring segments are fused
-wherever a single cubic covers both to within **0.8 source pixels**, measured
+wherever a single cubic covers both to within **0.6 source pixels**, measured
 by sampling the pair and its replacement. Repeating that helps, because every
 pass leaves fewer and longer segments and a pair too curved to span before may
 not be next time. On the reference file the outline went from 8,823 curve
@@ -1218,7 +1299,7 @@ replaced by an explicit limit that returns a clear `1004` error.
 (or plain `pip install -r requirements-dev.txt` and `pytest` with the
 environment activated)
 
-209 tests cover every output format, all three image-input styles, parameter
+216 tests cover every output format, all three image-input styles, parameter
 validation and rejection, geometry and unit conversion, colour quantization
 and palette pinning, draw styles, transparency, watermarking, credits,
 authentication, rate limiting, SSRF policy and the error envelope — plus the
@@ -1257,7 +1338,7 @@ app/
     render.py          SVG -> PDF / EPS / PNG
     pipeline.py        orchestration, threading, timeouts
     fetch.py           SSRF-guarded URL fetching
-tests/                 209 tests
+tests/                 216 tests
 ```
 
 ---

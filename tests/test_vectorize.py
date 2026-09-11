@@ -1741,7 +1741,8 @@ def test_simplification_fuses_segments_without_moving_the_curve():
 
     d = _as_path(_ring(48, 120.0))
     before = _segments(d)[0][1]
-    after = _segments(_smooth_path_data(d, 1.0, 1.2))[0][1]
+    # chamfer rounding switched off, so this measures fusing alone
+    after = _segments(_smooth_path_data(d, 1.0, 1.2, 0.0))[0][1]
 
     assert len(after) < len(before) * 0.8, (len(before), len(after))
 
@@ -2233,3 +2234,126 @@ def test_a_colour_off_the_end_of_the_line_is_not_a_blend():
     assert not _explained_as_blend(white, [cream, grey], 40.0)
     # ...and the loose form, kept for what a codec leaves, does catch it.
     assert _explained_as_blend(white, [cream, grey], 40.0, strict=False)
+
+
+# --- chamfers -----------------------------------------------------------------
+
+
+def _curve(start, c1, c2, end):
+    return [c1[0], c1[1], c2[0], c2[1], end[0], end[1]]
+
+
+def _line_segment(start, end):
+    """A cubic that is a straight line: handles on its own chord."""
+    c1 = [start[0] + (end[0] - start[0]) / 3, start[1] + (end[1] - start[1]) / 3]
+    c2 = [start[0] + 2 * (end[0] - start[0]) / 3, start[1] + 2 * (end[1] - start[1]) / 3]
+    return [c1[0], c1[1], c2[0], c2[1], end[0], end[1]]
+
+
+def _chamfered_corner(turn_x: float):
+    """Two curves with a short straight run cutting the bend between them."""
+    start = [0.0, 0.0]
+    first = _curve(start, [20.0, 0.0], [40.0, 0.0], [50.0, 0.0])
+    flat = _line_segment([50.0, 0.0], [53.0, turn_x])
+    # leaves at about 30 degrees: a bend, not a corner
+    second = _curve(
+        [53.0, turn_x], [63.0, turn_x + 6], [83.0, turn_x + 14], [103.0, turn_x + 20]
+    )
+    return start, [first, flat, second]
+
+
+def test_a_cut_corner_is_rounded_back_into_a_curve():
+    """The fitter answers a bend it will not spend a curve on by cutting
+    across it. At a hundred percent that reads as a slightly soft corner; at
+    sixty-four times it is a flat facet with a kink at each end."""
+    from app.services.svgdoc import _is_straight, _round_chamfers
+
+    start, segments = _chamfered_corner(3.0)
+    assert _is_straight(segments[1], [50.0, 0.0]) is not None
+    assert _round_chamfers(segments, closed=True, start=start, limit=6.0) == 1
+    # the run is still where it was, but it is no longer a line
+    assert segments[1][4:6] == [53.0, 3.0]
+    assert _is_straight(segments[1], [50.0, 0.0]) is None
+
+
+def test_a_real_corner_keeps_its_point():
+    """Rounding has to stop where the artwork actually turns, or a spike comes
+    back as a blob."""
+    from app.services.svgdoc import _round_chamfers
+
+    start = [0.0, 0.0]
+    first = _curve(start, [20.0, 0.0], [40.0, 0.0], [50.0, 0.0])
+    flat = _line_segment([50.0, 0.0], [52.0, 2.0])
+    # doubling back: the turn through the run is far beyond a bend
+    second = _curve([52.0, 2.0], [30.0, 20.0], [10.0, 30.0], [0.0, 34.0])
+    segments = [first, flat, second]
+    assert _round_chamfers(segments, closed=True, start=start, limit=6.0) == 0
+
+
+def test_a_long_straight_run_is_left_straight():
+    """An edge the artwork has is not a chamfer, however gently it turns."""
+    from app.services.svgdoc import _is_straight, _round_chamfers
+
+    start, segments = _chamfered_corner(3.0)
+    segments[1] = _line_segment([50.0, 0.0], [110.0, 6.0])
+    segments[2] = _curve([110.0, 6.0], [120.0, 12.0], [140.0, 20.0], [160.0, 26.0])
+    assert _round_chamfers(segments, closed=True, start=start, limit=6.0) == 0
+    assert _is_straight(segments[1], [50.0, 0.0]) is not None
+
+
+# --- Sealing only the seams the backdrop cannot repair ------------------------
+
+
+def _traced(shapes: str, size: int = 40) -> str:
+    return (f'<svg xmlns="http://www.w3.org/2000/svg" width="{size}" '
+            f'height="{size}">{shapes}</svg>')
+
+
+def _sealed(svg: bytes) -> int:
+    return len(re.findall(rb'stroke="#', svg))
+
+
+GROUND = '<path d="M0 0 H40 V40 H0 Z" fill="#f7f0d6"/>'
+INK = '<path d="M4 4 H18 V18 H4 Z" fill="#111111"/>'
+THIRD = '<path d="M12 12 H30 V30 H12 Z" fill="#3355aa"/>'
+
+
+def _seal_build(shapes: str, **extra):
+    from app.schemas.params import VectorizeParams
+    from app.services import svgdoc
+
+    params = VectorizeParams.model_validate({"output.combine_paths": "none"})
+    svg, _ = svgdoc.build(_traced(shapes), params, 40, 40, **extra)
+    return svg
+
+
+def test_an_edge_against_the_dominant_ink_is_not_sealed():
+    """The backdrop is that ink, so the seam already shows the right colour.
+
+    Sealing it anyway is what painted an olive band along every black-on-cream
+    edge of a traced botanical, because editors scale the stroke with the zoom.
+    """
+    assert _sealed(_seal_build(GROUND + INK)) == 0
+
+
+def test_an_edge_between_two_other_inks_is_still_sealed():
+    """Here the seam would show the ground, which is neither of the two."""
+    svg = _seal_build(GROUND + INK + THIRD)
+    assert _sealed(svg) == 2
+    assert b'fill="#f7f0d6"' in svg  # the ground itself stays unstroked
+
+
+def test_everything_is_sealed_when_nothing_covers_the_canvas():
+    """A source with alpha gets no backdrop, so any seam shows the page."""
+    assert _sealed(_seal_build(GROUND + INK, source_has_alpha=True)) == 2
+
+
+def test_a_transparent_background_also_keeps_every_seal():
+    from app.schemas.params import VectorizeParams
+    from app.services import svgdoc
+
+    params = VectorizeParams.model_validate(
+        {"output.combine_paths": "none", "output.background": "transparent"}
+    )
+    svg, _ = svgdoc.build(_traced(GROUND + INK), params, 40, 40)
+    assert _sealed(svg) == 2

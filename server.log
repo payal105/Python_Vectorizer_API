@@ -1,13 +1,13 @@
-2026-09-11T21:08:13 INFO     [-] vector_api: Python Vector API v1.0.0 ready (env=development, workers=16, auth=off)
-2026-09-11T21:08:38 INFO     [a7ce4da11756] vector_api.gradients: gradients: 1 of 3 regions shaded (1 linear, 0 radial, 0 merged, 0 unified), dE 0.40 -> 0.34 in 1276 ms
-2026-09-11T21:08:38 INFO     [a7ce4da11756] vector_api.pipeline: vectorized 1200x900 PNG -> svg (3 paths, 4129 ms)
-2026-09-11T21:08:38 INFO     [a7ce4da11756] vector_api.http: POST /api/v1/vectorize -> 200 in 4137.7ms
-INFO:     127.0.0.1:50441 - "POST /api/v1/vectorize HTTP/1.1" 200 OK
-2026-09-11T21:08:43 INFO     [0c3d68d3134e] vector_api.gradients: gradients: 0 of 7 regions shaded (0 linear, 0 radial, 0 merged, 0 unified), dE 0.17 -> 0.17 in 1190 ms
-2026-09-11T21:08:43 INFO     [0c3d68d3134e] vector_api.pipeline: vectorized 1600x1000 JPEG -> svg (3 paths, 4909 ms)
-2026-09-11T21:08:43 INFO     [0c3d68d3134e] vector_api.http: POST /api/v1/vectorize -> 200 in 4914.4ms
-INFO:     127.0.0.1:50538 - "POST /api/v1/vectorize HTTP/1.1" 200 OK
-2026-09-11T21:08:52 INFO     [f2f9cff76ac8] vector_api.gradients: gradients: 1 of 64 regions shaded (1 linear, 0 radial, 0 merged, 0 unified), dE 0.18 -> 0.18 in 3019 ms
-2026-09-11T21:08:52 INFO     [f2f9cff76ac8] vector_api.pipeline: vectorized 1600x1459 JPEG -> svg (14 paths, 9452 ms)
-2026-09-11T21:08:52 INFO     [f2f9cff76ac8] vector_api.http: POST /api/v1/vectorize -> 200 in 9462.1ms
-INFO:     127.0.0.1:50651 - "POST /api/v1/vectorize HTTP/1.1" 200 OK
+2026-09-12T00:01:57 INFO     [-] vector_api: Python Vector API v1.0.0 ready (env=development, workers=16, auth=off)
+2026-09-12T00:02:47 INFO     [2cf98cd517cd] vector_api.gradients: gradients: 0 of 4 regions shaded (0 linear, 0 radial, 0 merged, 0 unified), dE 0.09 -> 0.09 in 104 ms
+2026-09-12T00:02:47 INFO     [2cf98cd517cd] vector_api.pipeline: vectorized 320x240 PNG -> svg (4 paths, 445 ms)
+2026-09-12T00:02:47 INFO     [2cf98cd517cd] vector_api.http: POST /api/v1/vectorize -> 200 in 452.8ms
+INFO:     127.0.0.1:51111 - "POST /api/v1/vectorize HTTP/1.1" 200 OK
+2026-09-12T00:02:55 INFO     [764f757b0bc0] vector_api.gradients: gradients: 1 of 64 regions shaded (0 linear, 1 radial, 0 merged, 0 unified), dE 0.18 -> 0.18 in 2534 ms
+2026-09-12T00:02:55 INFO     [764f757b0bc0] vector_api.pipeline: vectorized 1600x1459 JPEG -> svg (14 paths, 7891 ms)
+2026-09-12T00:02:55 INFO     [764f757b0bc0] vector_api.http: POST /api/v1/vectorize -> 200 in 7900.4ms
+INFO:     127.0.0.1:51122 - "POST /api/v1/vectorize HTTP/1.1" 200 OK
+2026-09-12T00:03:01 INFO     [bf002d1e2ea6] vector_api.gradients: gradients: 0 of 76 regions shaded (0 linear, 0 radial, 0 merged, 0 unified), dE 0.12 -> 0.12 in 1534 ms
+2026-09-12T00:03:01 INFO     [bf002d1e2ea6] vector_api.pipeline: vectorized 3290x614 PNG -> svg (22 paths, 5887 ms)
+2026-09-12T00:03:01 INFO     [bf002d1e2ea6] vector_api.http: POST /api/v1/vectorize -> 200 in 5894.9ms
+INFO:     127.0.0.1:51307 - "POST /api/v1/vectorize HTTP/1.1" 200 OK
